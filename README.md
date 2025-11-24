@@ -1,8 +1,6 @@
-# IKFast Robotics Library
+# IK-Solver Library
 
-**Unified inverse kinematics solver library for multiple robot models**
-
-Simple, high-performance C++ library providing a single API for computing inverse kinematics across multiple industrial robot models using pre-generated IKFast solvers.
+**다양한 로봇 모델을 지원하는 ikfast cpp 모듈**
 
 ## Quick Start
 
@@ -51,7 +49,7 @@ All API is in namespace `ikfast_robotics`.
 
 ### 1. IKFastSolver Class
 
-Main solver class providing unified interface for all robot models.
+메인 클래스
 
 #### Constructor
 
@@ -59,13 +57,13 @@ Main solver class providing unified interface for all robot models.
 explicit IKFastSolver(const std::string& robot_name)
 ```
 
-Creates a solver instance for the specified robot model.
+로봇 모델명 받아서 인스턴스 생성
 
 **Parameters:**
 - `robot_name`: Robot model identifier
   - `"kawasaki_kj125"` or `"kj125"` - Kawasaki KJ125
   - `"yaskawa_gp4"` or `"gp4"` - Yaskawa GP4 (if available)
-  - More robots as they are added
+  -  등등
 
 **Example:**
 ```cpp
@@ -85,17 +83,17 @@ bool solveIK(
 )
 ```
 
-Compute inverse kinematics for target TCP pose, returning the solution closest to `current_joints`.
+TCP 6D 포즈를 넣으면,`current_joints`와 nearest 한 joints 각을 반환 
 
 **Parameters:**
-- `tcp_pose`: Target TCP 6D pose (position + orientation)
-- `current_joints`: Current joint angles in radians (used to find closest solution)
-- `wrist_config`: Preferred wrist configuration (`WristConfig::NONE`, `FLIP`, or `NO_FLIP`)
-- `solution`: [out] Output IK solution
+- `tcp_pose`: 목표 TCP 6D 포즈 (x,y,z,rx,ry,rz)
+- `current_joints`: 현재 조인트 각 (radians) ({a,b,c,...} 형식)
+- `wrist_config`: wrist configuration (`WristConfig::NONE`, `FLIP`, or `NO_FLIP`) (아직 미사용)
+- `solution`: [out] IK 해
 
 **Returns:**
-- `true` if solution found
-- `false` if no solution (pose unreachable or at singularity)
+- `true` 해 있음
+- `false` 해 없음 (pose unreachable)
 
 **Example:**
 ```cpp
@@ -118,7 +116,7 @@ int solveIKAll(
 )
 ```
 
-Compute all possible IK solutions for target pose.
+대상 포즈에 대한 모든 IK 다수해
 
 **Parameters:**
 - `tcp_pose`: Target TCP 6D pose
@@ -147,7 +145,7 @@ bool computeFK(
 )
 ```
 
-Compute forward kinematics - get TCP pose from joint angles.
+조인트 각을 입력하면 TCP 포즈를 반환 (검증용으로 사용)
 
 **Parameters:**
 - `joints`: Joint angles in radians (must be size == DOF)
@@ -167,74 +165,16 @@ if (solver.computeFK(joints, tcp_pose)) {
 }
 ```
 
-##### getRobotName()
-
-```cpp
-std::string getRobotName() const
-```
-
-Get the robot model name.
-
-**Returns:** Robot name string
-
-##### getDOF()
-
-```cpp
-int getDOF() const
-```
-
-Get number of degrees of freedom.
-
-**Returns:** DOF (typically 6 for industrial robots)
-
-##### isValid()
-
-```cpp
-bool isValid() const
-```
-
-Check if solver is properly initialized.
-
-**Returns:**
-- `true` if solver is ready to use
-- `false` if robot model not found or initialization failed
-
-**Example:**
-```cpp
-IKFastSolver solver("unknown_robot");
-if (!solver.isValid()) {
-    std::cerr << "Failed to initialize solver\n";
-}
-```
-
-##### getSupportedRobots() (static)
-
-```cpp
-static std::vector<std::string> getSupportedRobots()
-```
-
-Get list of all supported robot models.
-
-**Returns:** Vector of robot name strings
-
-**Example:**
-```cpp
-auto robots = IKFastSolver::getSupportedRobots();
-for (const auto& robot : robots) {
-    std::cout << "- " << robot << "\n";
-}
-```
-
 ---
 
 ### 2. Pose6D Structure
 
-Represents 6D pose (position + orientation).
+6D 포즈를 표현하는 구조체
 
 ```cpp
 struct Pose6D {
-    double x, y, z;        // Position in meters
-    double rx, ry, rz;     // Orientation in radians (roll-pitch-yaw)
+    double x, y, z;        // 미터
+    double rx, ry, rz;     // rpy값 라디안
 
     Pose6D();  // Default constructor (all zeros)
     Pose6D(double x, double y, double z, double rx, double ry, double rz);
@@ -242,13 +182,13 @@ struct Pose6D {
 ```
 
 **Members:**
-- `x, y, z`: Position in meters (base coordinate frame)
-- `rx, ry, rz`: Orientation in radians
+- `x, y, z`: 미터표기 위치값 (base 좌표계 기준)
+- `rx, ry, rz`: 라디안표기 회전값
   - `rx`: Roll (rotation around X-axis)
   - `ry`: Pitch (rotation around Y-axis)
   - `rz`: Yaw (rotation around Z-axis)
 
-**Coordinate System:** Z-up right-handed coordinate system
+**Coordinate System:** Z-up 오르손 좌표계
 
 **Example:**
 ```cpp
@@ -264,24 +204,22 @@ std::cout << "Roll: " << pose.rx << " rad\n";
 
 ### 3. IKSolution Structure
 
-Contains IK solution result.
+IK 해를 표현하기 위한 구조체
 
 ```cpp
 struct IKSolution {
-    std::vector<double> joints;  // Joint angles in radians
-    bool is_valid;               // Solution validity flag
-    double error;                // FK verification error (meters)
+    std::vector<double> joints;  // 조인트 각
+    bool is_valid;               // IK해 있는지 여부
+    double error;                // FK와의 오차 (딜레이때문에 빼야하나?)
 
     IKSolution();  // Default constructor
 };
 ```
 
 **Members:**
-- `joints`: Joint angles in radians (size == DOF)
-- `is_valid`: `true` if solution is valid
-- `error`: Forward kinematics verification error in meters
-  - Measures how accurately the solution reaches the target
-  - Typical good solutions: < 0.001 m (1mm)
+- `joints`: 라디안표기 조인트 값
+- `is_valid`: IK 해가 하나라도 존재하면 `true`
+- `error`: FK 검증값과의 오차
 
 **Example:**
 ```cpp
@@ -300,7 +238,7 @@ if (solver.solveIK(target, current, WristConfig::NONE, solution)) {
 
 ### 4. WristConfig Enum
 
-Wrist configuration preference for IK solving.
+Wrist Configuration 표현 위한 Enum
 
 ```cpp
 enum class WristConfig {
@@ -311,9 +249,9 @@ enum class WristConfig {
 ```
 
 **Values:**
-- `WristConfig::NONE`: Default - finds solution closest to `current_joints`
-- `WristConfig::FLIP`: Prefers wrist flip configuration (if multiple solutions available)
-- `WristConfig::NO_FLIP`: Prefers wrist no-flip configuration
+- `WristConfig::NONE`: 기본값, `current_joints`와의 nearest
+- `WristConfig::FLIP`: wrist configruation이 flip인 해 우선
+- `WristConfig::NO_FLIP`: wrist configruation이 no_flip인 해 우선
 
 **Example:**
 ```cpp
@@ -367,47 +305,11 @@ cmake --build . --config Release
 
 | Robot Model | Status | Namespace | Notes |
 |------------|--------|-----------|-------|
-| Kawasaki KJ125 | ✅ Available | `kj125_ikfast` | Fully tested |
-| Yaskawa GP4 | 🔄 Coming Soon | `gp4_ikfast` | - |
-| Yaskawa GP7 | 🔄 Coming Soon | `gp7_ikfast` | - |
+| Kawasaki KJ125 | ✅ Available | `kj125_ikfast` | |
+| Yaskawa GP4 | 🔄 작업중 | `gp4_ikfast` | 왜안됨 |
 
 ---
 
-## Performance
-
-- **IK Computation**: < 1ms (typical)
-- **FK Verification**: < 0.1ms
-- **Accuracy**: < 0.1mm position error (typical)
-- **Solutions per Pose**: 0-8 (6DOF robots)
-
----
-
-## Error Handling
-
-### No Solution Found
-
-`solveIK()` returns `false` when:
-- Target pose is outside robot workspace
-- Pose is at or near singularity
-- Invalid robot name
-
-**Example:**
-```cpp
-if (!solver.solveIK(target, current, WristConfig::NONE, solution)) {
-    std::cerr << "No IK solution found\n";
-    // Check if target is reachable
-    // Try different current_joints as seed
-}
-```
-
-### High FK Error
-
-If `solution.error` is large (> 0.001 m):
-- Solution may be at joint limits
-- Numerical instability
-- Consider trying different seed joints
-
----
 
 ## Examples
 
@@ -492,42 +394,6 @@ Pose6D target(
 
 ## Adding New Robots
 
-See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for instructions on generating and integrating new robot models.
+회사에서 쓰이는 로봇 위주 작업중이지만, 정태준에게 말씀해주시면 우선작업 가능!
 
 ---
-
-## License
-
-Apache License 2.0
-
-Copyright 2025 IKFast Robotics Team
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
----
-
-## Contact
-
-- **Issues**: GitHub Issues
-- **Email**: robotics@your-company.com
-
-## Citation
-
-```bibtex
-@software{ikfast_robotics,
-  title = {IKFast Robotics Library},
-  author = {IKFast Generator Team},
-  year = {2025},
-  url = {https://github.com/your-company/ikfast-robotics}
-}
-```
