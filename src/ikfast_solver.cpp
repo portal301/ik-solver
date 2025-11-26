@@ -1,315 +1,350 @@
-/**
- * @file ikfast_solver.cpp
- * @brief Implementation of unified IKFast solver
- */
-
-#include "ikfast_solver.h"
-#include "ikfast.h"
+// ikfast_solver.cpp
+#include <windows.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <iostream>
+#include <filesystem>
 #include <cmath>
 #include <limits>
-#include <algorithm>
-#include <map>
-#include <stdexcept>
 
-// Forward declarations for robot-specific IKFast solvers
-// These will be linked from individual robot cpp files
-namespace kj125_ikfast {
-    using namespace ikfast;
-    extern int GetNumFreeParameters();
-    extern const int* GetFreeIndices();
-    extern int GetNumJoints();
-    extern int GetIkRealSize();
-    extern const char* GetKinematicsHash();
-    extern bool ComputeIk(const IkReal* eetrans, const IkReal* eerot,
-                          const IkReal* pfree, IkSolutionListBase<IkReal>& solutions);
-    extern void ComputeFk(const IkReal* joints, IkReal* eetrans, IkReal* eerot);
-}
+#include "ikfast.h"   // 방금 만든 ikfast.h
 
-// Add more robot namespaces here as they are generated
-// namespace gp4_ikfast { ... }
-// namespace gp7_ikfast { ... }
+namespace fs = std::filesystem;
 
-namespace ikfast_robotics {
+using IkReal = double; // ikfast.h에서도 typedef double IkReal; 이라서 맞춤
 
-// Robot-specific solver interface
-struct RobotSolverInterface {
-    virtual ~RobotSolverInterface() = default;
-    virtual bool computeIK(const double* eetrans, const double* eerot,
-                           std::vector<std::vector<double>>& solutions) = 0;
-    virtual bool computeFK(const std::vector<double>& joints,
-                           double* eetrans, double* eerot) = 0;
-    virtual int getDOF() const = 0;
-    virtual std::string getName() const = 0;
+// Configuration enums
+enum class PoseConfig {
+    UNKNOWN = -1,
+    RIGHT = 0,   // J1 범위: [-180, 0) or [0, 180) 로 구분 가능
+    LEFT = 1,
+    UP = 0,      // J3 + offset > 0
+    DOWN = 1,    // J3 + offset < 0
+    N_FLIP = 0,  // J5 >= 0
+    FLIP = 1     // J5 < 0
 };
 
-// KJ125 solver implementation
-class KJ125Solver : public RobotSolverInterface {
-public:
-    bool computeIK(const double* eetrans, const double* eerot,
-                   std::vector<std::vector<double>>& solutions) override {
-        solutions.clear();
+struct RobotConfiguration {
+    PoseConfig shoulder;  // RIGHT or LEFT
+    PoseConfig elbow;     // UP or DOWN
+    PoseConfig wrist;     // N_FLIP or FLIP
+    
+    bool operator==(const RobotConfiguration& other) const {
+        return shoulder == other.shoulder && 
+               elbow == other.elbow && 
+               wrist == other.wrist;
+    }
+};
 
-        // Create IKFast solution list
-        ikfast::IkSolutionList<ikfast::IkReal> ik_solutions;
+struct RobotIkPlugin {
+    HMODULE dll = nullptr;
+    ikfast::IkFastFunctions<IkReal> fns{};
+    int num_joints = 0;
+    int num_free = 0;
+    std::string name;
+};
 
-        // Call IKFast solver
-        bool success = kj125_ikfast::ComputeIk(eetrans, eerot, nullptr, ik_solutions);
+static std::unordered_map<std::string, RobotIkPlugin> g_plugins;
 
-        if (!success) {
-            return false;
+// --- 내부 유틸 ---
+
+template <typename T>
+T load_symbol(HMODULE dll, const char* name) {
+    FARPROC fp = GetProcAddress(dll, name);
+    if (!fp) {
+        std::cerr << "GetProcAddress failed for symbol: " << name << std::endl;
+        return nullptr;
+    }
+    return reinterpret_cast<T>(fp);
+}
+
+// 파일명에서 로봇 이름 추출: "gp25_ikfast.dll" -> "gp25"
+static std::string robot_name_from_path(const fs::path& p) {
+    std::string stem = p.stem().string(); // "gp25_ikfast"
+    const std::string suffix = "_ikfast";
+    if (stem.size() > suffix.size() &&
+        stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        return stem.substr(0, stem.size() - suffix.size());
+    }
+    // 규칙 안 맞으면 전체 stem 그대로 반환
+    return stem;
+}
+
+// --- 1) robots 폴더 스캔해서 모든 DLL 로드 ---
+
+bool load_ik_plugins(const std::string& robots_dir) {
+    g_plugins.clear();
+
+    fs::path dir(robots_dir);
+    if (!fs::exists(dir) || !fs::is_directory(dir)) {
+        std::cerr << "robots directory not found: " << robots_dir << std::endl;
+        return false;
+    }
+
+    for (auto& entry : fs::directory_iterator(dir)) {
+        if (!entry.is_regular_file())
+            continue;
+
+        fs::path p = entry.path();
+        if (p.extension() != ".dll")
+            continue;
+
+        std::string robot = robot_name_from_path(p);
+
+        HMODULE dll = LoadLibraryW(p.wstring().c_str());
+        if (!dll) {
+            std::wcerr << L"Failed to LoadLibrary: " << p.wstring() << std::endl;
+            continue;
         }
 
-        // Extract all solutions
-        size_t num_solutions = ik_solutions.GetNumSolutions();
-        if (num_solutions == 0) {
-            return false;
+        RobotIkPlugin plugin;
+        plugin.dll = dll;
+        plugin.name = robot;
+
+        // ikfast.h에서 정의한 함수 포인터 타입 사용
+        using IkFns = ikfast::IkFastFunctions<IkReal>;
+
+        plugin.fns._ComputeIk            = load_symbol<IkFns::ComputeIkFn>(dll, "ComputeIk");
+        plugin.fns._ComputeFk            = load_symbol<IkFns::ComputeFkFn>(dll, "ComputeFk");
+        plugin.fns._GetNumFreeParameters = load_symbol<IkFns::GetNumFreeParametersFn>(dll, "GetNumFreeParameters");
+        plugin.fns._GetFreeParameters    = load_symbol<IkFns::GetFreeParametersFn>(dll, "GetFreeParameters");
+        plugin.fns._GetNumJoints         = load_symbol<IkFns::GetNumJointsFn>(dll, "GetNumJoints");
+        plugin.fns._GetIkRealSize        = load_symbol<IkFns::GetIkRealSizeFn>(dll, "GetIkRealSize");
+        plugin.fns._GetIkFastVersion     = load_symbol<IkFns::GetIkFastVersionFn>(dll, "GetIkFastVersion");
+        plugin.fns._GetIkType            = load_symbol<IkFns::GetIkTypeFn>(dll, "GetIkType");
+        plugin.fns._GetKinematicsHash    = load_symbol<IkFns::GetKinematicsHashFn>(dll, "GetKinematicsHash");
+
+        // 필수 함수 확인
+        if (!plugin.fns._ComputeIk || !plugin.fns._GetNumJoints) {
+            std::cerr << "DLL missing mandatory IKFast symbols, skipping: "
+                      << p.string() << std::endl;
+            FreeLibrary(dll);
+            continue;
         }
 
-        int num_joints = getDOF();
-        solutions.reserve(num_solutions);
-
-        for (size_t i = 0; i < num_solutions; ++i) {
-            const ikfast::IkSolutionBase<ikfast::IkReal>& sol = ik_solutions.GetSolution(i);
-            std::vector<double> joint_solution(num_joints);
-            sol.GetSolution(joint_solution.data(), nullptr);
-            solutions.push_back(joint_solution);
+        plugin.num_joints = plugin.fns._GetNumJoints();
+        if (plugin.fns._GetNumFreeParameters) {
+            plugin.num_free = plugin.fns._GetNumFreeParameters();
         }
 
+        std::cout << "Loaded IK plugin: " << robot
+                  << " (joints=" << plugin.num_joints
+                  << ", free=" << plugin.num_free << ")\n";
+
+        g_plugins.emplace(robot, std::move(plugin));
+    }
+
+    return !g_plugins.empty();
+}
+
+// --- Configuration 분류 함수 ---
+
+// 6축 로봇의 joint 값으로부터 configuration 판별
+RobotConfiguration classifyConfiguration(const std::vector<IkReal>& joints) {
+    RobotConfiguration config;
+    
+    if (joints.size() < 6) {
+        config.shoulder = PoseConfig::UNKNOWN;
+        config.elbow = PoseConfig::UNKNOWN;
+        config.wrist = PoseConfig::UNKNOWN;
+        return config;
+    }
+    
+    // J1 (shoulder): [-π, 0) = RIGHT, [0, π) = LEFT
+    // 정규화된 각도 기준
+    IkReal j1_normalized = std::fmod(joints[0] + M_PI, 2.0 * M_PI);
+    if (j1_normalized < 0) j1_normalized += 2.0 * M_PI;
+    j1_normalized -= M_PI;
+    
+    config.shoulder = (j1_normalized < 0) ? PoseConfig::RIGHT : PoseConfig::LEFT;
+    
+    // J3 (elbow): UP if J3 > -π/2, DOWN if J3 < -π/2
+    // 일반적으로 elbow up/down은 J3 값으로 구분
+    config.elbow = (joints[2] > -M_PI_2) ? PoseConfig::UP : PoseConfig::DOWN;
+    
+    // J5 (wrist): N_FLIP if J5 >= 0, FLIP if J5 < 0
+    config.wrist = (joints[4] >= 0) ? PoseConfig::N_FLIP : PoseConfig::FLIP;
+    
+    return config;
+}
+
+// 두 joint 배열 간의 거리 계산 (가중치 없는 유클리드 거리)
+IkReal computeJointDistance(const std::vector<IkReal>& j1, const std::vector<IkReal>& j2) {
+    if (j1.size() != j2.size()) {
+        return std::numeric_limits<IkReal>::max();
+    }
+    
+    IkReal sum = 0.0;
+    for (size_t i = 0; i < j1.size(); ++i) {
+        IkReal diff = j1[i] - j2[i];
+        // 각도 차이를 [-π, π] 범위로 정규화
+        while (diff > M_PI) diff -= 2.0 * M_PI;
+        while (diff < -M_PI) diff += 2.0 * M_PI;
+        sum += diff * diff;
+    }
+    
+    return std::sqrt(sum);
+}
+
+// --- 2) 특정 로봇에 대해 IK 계산하는 래퍼 ---
+
+bool solveIK(
+    const std::string& robot_name,
+    const IkReal* eetrans,      // [3]
+    const IkReal* eerot,        // [9]
+    const IkReal* freeparams,   // free DOF 값들 (없으면 nullptr)
+    std::vector<std::vector<IkReal>>& out_solutions
+) {
+    auto it = g_plugins.find(robot_name);
+    if (it == g_plugins.end()) {
+        std::cerr << "Robot IK plugin not loaded: " << robot_name << std::endl;
+        return false;
+    }
+
+    RobotIkPlugin& plugin = it->second;
+    if (!plugin.fns._ComputeIk) {
+        std::cerr << "ComputeIk function not available for robot: "
+                  << robot_name << std::endl;
+        return false;
+    }
+
+    ikfast::IkSolutionList<IkReal> solutions;
+    // freeparams 개수는 plugin.num_free에 맞게 사용 (필요하면 체크)
+    bool ok = plugin.fns._ComputeIk(eetrans, eerot, freeparams, solutions);
+    if (!ok) {
+        return false;
+    }
+
+    size_t nsol = solutions.GetNumSolutions();
+    out_solutions.clear();
+    out_solutions.reserve(nsol);
+
+    std::vector<IkReal> solvec;
+    std::vector<IkReal> freevec(plugin.num_free, 0.0); // 필요시 입력 freeparams에서 채움
+
+    for (size_t i = 0; i < nsol; ++i) {
+        const ikfast::IkSolutionBase<IkReal>& sol = solutions.GetSolution(i);
+        solvec.clear();
+        sol.GetSolution(solvec, freevec);
+        out_solutions.push_back(solvec);
+    }
+
+    return !out_solutions.empty();
+}
+
+// --- 3) Configuration 필터링 + Nearest 선택 기능 추가 ---
+
+struct IkSolveResult {
+    bool is_solvable = false;
+    std::vector<IkReal> joint_solution;
+    RobotConfiguration config;
+    IkReal distance = std::numeric_limits<IkReal>::max();
+};
+
+bool solveIKWithConfig(
+    const std::string& robot_name,
+    const IkReal* eetrans,                    // [3]
+    const IkReal* eerot,                      // [9]
+    const IkReal* current_joints,             // [6] 현재 joint 값
+    const RobotConfiguration* desired_config, // 원하는 configuration (nullptr면 무시)
+    const IkReal* freeparams,                 // free DOF 값들 (없으면 nullptr)
+    IkSolveResult& result
+) {
+    auto it = g_plugins.find(robot_name);
+    if (it == g_plugins.end()) {
+        std::cerr << "Robot IK plugin not loaded: " << robot_name << std::endl;
+        return false;
+    }
+
+    RobotIkPlugin& plugin = it->second;
+    if (!plugin.fns._ComputeIk) {
+        std::cerr << "ComputeIk function not available for robot: "
+                  << robot_name << std::endl;
+        return false;
+    }
+
+    ikfast::IkSolutionList<IkReal> solutions;
+    bool ok = plugin.fns._ComputeIk(eetrans, eerot, freeparams, solutions);
+    if (!ok || solutions.GetNumSolutions() == 0) {
+        result.is_solvable = false;
+        return false;
+    }
+
+    // 현재 joint 값을 vector로 변환
+    std::vector<IkReal> current_joint_vec;
+    if (current_joints != nullptr) {
+        current_joint_vec.assign(current_joints, current_joints + plugin.num_joints);
+    }
+
+    // 모든 해 중에서 조건에 맞는 최적의 해 찾기
+    IkReal best_distance = std::numeric_limits<IkReal>::max();
+    std::vector<IkReal> best_solution;
+    RobotConfiguration best_config;
+    bool found = false;
+
+    std::vector<IkReal> freevec(plugin.num_free, 0.0);
+    
+    for (size_t i = 0; i < solutions.GetNumSolutions(); ++i) {
+        const ikfast::IkSolutionBase<IkReal>& sol = solutions.GetSolution(i);
+        std::vector<IkReal> candidate;
+        sol.GetSolution(candidate, freevec);
+        
+        // Configuration 분류
+        RobotConfiguration candidate_config = classifyConfiguration(candidate);
+        
+        // desired_config가 지정된 경우, 일치하는지 확인
+        if (desired_config != nullptr) {
+            if (!(candidate_config == *desired_config)) {
+                continue;  // configuration이 일치하지 않으면 스킵
+            }
+        }
+        
+        // 현재 joint와의 거리 계산
+        IkReal distance = 0.0;
+        if (current_joints != nullptr && !current_joint_vec.empty()) {
+            distance = computeJointDistance(candidate, current_joint_vec);
+        }
+        
+        // 더 가까운 해를 찾으면 업데이트
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_solution = candidate;
+            best_config = candidate_config;
+            found = true;
+        }
+    }
+
+    if (found) {
+        result.is_solvable = true;
+        result.joint_solution = best_solution;
+        result.config = best_config;
+        result.distance = best_distance;
         return true;
     }
 
-    bool computeFK(const std::vector<double>& joints,
-                   double* eetrans, double* eerot) override {
-        if (joints.size() != static_cast<size_t>(getDOF())) {
-            return false;
-        }
-        kj125_ikfast::ComputeFk(joints.data(), eetrans, eerot);
-        return true;
-    }
-
-    int getDOF() const override {
-        return kj125_ikfast::GetNumJoints();
-    }
-
-    std::string getName() const override {
-        return "kawasaki_kj125";
-    }
-};
-
-// Robot factory - maps robot names to solver implementations
-static std::map<std::string, std::function<std::unique_ptr<RobotSolverInterface>()>> robot_factory = {
-    {"kawasaki_kj125", []() { return std::make_unique<KJ125Solver>(); }},
-    {"kj125", []() { return std::make_unique<KJ125Solver>(); }},
-    // Add more robots here as they are implemented
-    // {"yaskawa_gp4", []() { return std::make_unique<GP4Solver>(); }},
-};
-
-// Helper: Convert Pose6D to transformation matrix
-static void pose6DToTransform(const Pose6D& pose, double* trans, double* rot) {
-    // Translation
-    trans[0] = pose.x;
-    trans[1] = pose.y;
-    trans[2] = pose.z;
-
-    // Rotation matrix from roll-pitch-yaw
-    double cr = std::cos(pose.rx), sr = std::sin(pose.rx);
-    double cp = std::cos(pose.ry), sp = std::sin(pose.ry);
-    double cy = std::cos(pose.rz), sy = std::sin(pose.rz);
-
-    // ZYX Euler angles (roll-pitch-yaw) to rotation matrix
-    rot[0] = cy * cp;
-    rot[1] = cy * sp * sr - sy * cr;
-    rot[2] = cy * sp * cr + sy * sr;
-    rot[3] = sy * cp;
-    rot[4] = sy * sp * sr + cy * cr;
-    rot[5] = sy * sp * cr - cy * sr;
-    rot[6] = -sp;
-    rot[7] = cp * sr;
-    rot[8] = cp * cr;
+    result.is_solvable = false;
+    return false;
 }
 
-// Helper: Convert transformation matrix to Pose6D
-static void transformToPose6D(const double* trans, const double* rot, Pose6D& pose) {
-    pose.x = trans[0];
-    pose.y = trans[1];
-    pose.z = trans[2];
+// --- 4) 여러 configuration 우선순위로 시도하는 래퍼 ---
 
-    // Rotation matrix to roll-pitch-yaw
-    pose.ry = std::atan2(-rot[6], std::sqrt(rot[0]*rot[0] + rot[3]*rot[3]));
-
-    if (std::abs(std::cos(pose.ry)) > 1e-6) {
-        pose.rz = std::atan2(rot[3], rot[0]);
-        pose.rx = std::atan2(rot[7], rot[8]);
-    } else {
-        pose.rz = std::atan2(-rot[1], rot[4]);
-        pose.rx = 0.0;
-    }
-}
-
-// Helper: Calculate joint distance
-static double jointDistance(const std::vector<double>& j1, const std::vector<double>& j2) {
-    double dist = 0.0;
-    for (size_t i = 0; i < j1.size() && i < j2.size(); ++i) {
-        double diff = j1[i] - j2[i];
-        dist += diff * diff;
-    }
-    return std::sqrt(dist);
-}
-
-// ============================================================================
-// IKFastSolver::Impl
-// ============================================================================
-
-class IKFastSolver::Impl {
-public:
-    std::unique_ptr<RobotSolverInterface> solver_;
-    std::string robot_name_;
-    bool is_valid_;
-
-    Impl(const std::string& robot_name) : robot_name_(robot_name), is_valid_(false) {
-        auto it = robot_factory.find(robot_name);
-        if (it != robot_factory.end()) {
-            solver_ = it->second();
-            is_valid_ = (solver_ != nullptr);
+bool solveIKWithConfigPriority(
+    const std::string& robot_name,
+    const IkReal* eetrans,                               // [3]
+    const IkReal* eerot,                                 // [9]
+    const IkReal* current_joints,                        // [6] 현재 joint 값
+    const std::vector<RobotConfiguration>& config_priority, // 우선순위 순서대로 시도할 config 리스트
+    const IkReal* freeparams,                            // free DOF 값들 (없으면 nullptr)
+    IkSolveResult& result
+) {
+    // config_priority 순서대로 시도
+    for (const auto& config : config_priority) {
+        if (solveIKWithConfig(robot_name, eetrans, eerot, current_joints, &config, freeparams, result)) {
+            return true;
         }
     }
-};
-
-// ============================================================================
-// IKFastSolver Public API
-// ============================================================================
-
-IKFastSolver::IKFastSolver(const std::string& robot_name)
-    : pimpl_(std::make_unique<Impl>(robot_name)) {
+    
+    // 모든 우선순위 config에서 해를 못 찾으면 config 제한 없이 시도
+    return solveIKWithConfig(robot_name, eetrans, eerot, current_joints, nullptr, freeparams, result);
 }
-
-IKFastSolver::~IKFastSolver() = default;
-
-bool IKFastSolver::solveIK(
-    const Pose6D& tcp_pose,
-    const std::vector<double>& current_joints,
-    WristConfig wrist_config,
-    IKSolution& solution)
-{
-    if (!pimpl_->is_valid_ || !pimpl_->solver_) {
-        return false;
-    }
-
-    // Convert pose to transformation matrix
-    double trans[3];
-    double rot[9];
-    pose6DToTransform(tcp_pose, trans, rot);
-
-    // Compute all IK solutions
-    std::vector<std::vector<double>> all_solutions;
-    if (!pimpl_->solver_->computeIK(trans, rot, all_solutions)) {
-        return false;
-    }
-
-    if (all_solutions.empty()) {
-        return false;
-    }
-
-    // Find closest solution to current joints
-    double min_dist = std::numeric_limits<double>::max();
-    int best_idx = 0;
-
-    for (size_t i = 0; i < all_solutions.size(); ++i) {
-        double dist = jointDistance(current_joints, all_solutions[i]);
-        if (dist < min_dist) {
-            min_dist = dist;
-            best_idx = i;
-        }
-    }
-
-    // Verify solution with FK
-    double fk_trans[3];
-    double fk_rot[9];
-    pimpl_->solver_->computeFK(all_solutions[best_idx], fk_trans, fk_rot);
-
-    // Calculate error
-    double pos_error = std::sqrt(
-        std::pow(trans[0] - fk_trans[0], 2) +
-        std::pow(trans[1] - fk_trans[1], 2) +
-        std::pow(trans[2] - fk_trans[2], 2)
-    );
-
-    solution.joints = all_solutions[best_idx];
-    solution.is_valid = true;
-    solution.error = pos_error;
-
-    return true;
-}
-
-int IKFastSolver::solveIKAll(
-    const Pose6D& tcp_pose,
-    std::vector<IKSolution>& solutions)
-{
-    if (!pimpl_->is_valid_ || !pimpl_->solver_) {
-        return 0;
-    }
-
-    double trans[3];
-    double rot[9];
-    pose6DToTransform(tcp_pose, trans, rot);
-
-    std::vector<std::vector<double>> all_solutions;
-    if (!pimpl_->solver_->computeIK(trans, rot, all_solutions)) {
-        return 0;
-    }
-
-    solutions.clear();
-    for (const auto& sol : all_solutions) {
-        IKSolution ik_sol;
-        ik_sol.joints = sol;
-        ik_sol.is_valid = true;
-        ik_sol.error = 0.0; // Could compute FK error here
-        solutions.push_back(ik_sol);
-    }
-
-    return static_cast<int>(solutions.size());
-}
-
-bool IKFastSolver::computeFK(
-    const std::vector<double>& joints,
-    Pose6D& tcp_pose)
-{
-    if (!pimpl_->is_valid_ || !pimpl_->solver_) {
-        return false;
-    }
-
-    double trans[3];
-    double rot[9];
-
-    if (!pimpl_->solver_->computeFK(joints, trans, rot)) {
-        return false;
-    }
-
-    transformToPose6D(trans, rot, tcp_pose);
-    return true;
-}
-
-std::string IKFastSolver::getRobotName() const {
-    return pimpl_->robot_name_;
-}
-
-int IKFastSolver::getDOF() const {
-    if (!pimpl_->is_valid_ || !pimpl_->solver_) {
-        return 0;
-    }
-    return pimpl_->solver_->getDOF();
-}
-
-bool IKFastSolver::isValid() const {
-    return pimpl_->is_valid_;
-}
-
-std::vector<std::string> IKFastSolver::getSupportedRobots() {
-    std::vector<std::string> robots;
-    for (const auto& pair : robot_factory) {
-        robots.push_back(pair.first);
-    }
-    return robots;
-}
-
-} // namespace ikfast_robotics
