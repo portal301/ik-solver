@@ -11,6 +11,7 @@ IKFast 기반 IK Solver 통합 라이브러리입니다. 플러그인 아키텍�
 - [API 레퍼런스](#api-레퍼런스)
   - [초기화 함수](#초기화-함수)
   - [역기구학(IK) 함수](#역기구학ik-함수)
+  - [정기구학(FK) 함수](#정기구학fk-함수)
 - [사용 예제](#사용-예제)
   - [C# 예제](#c-예제)
   - [Python 예제](#python-예제)
@@ -34,11 +35,11 @@ ik-fast를 현재 지원중인 로봇 리스트는 엑셀링크를 참고
 
 ```
 ik-solver/
-├── ikfast_solver.pyd               # Python 모듈 (Python 사용 시)
+├── ikfast_solver.cp310-win_amd64.pyd  # Python 3.10 모듈 (System/Conda 공통)
 ├── bin/
-│   └── IKFastUnity_x64.dll         # C#/Unity DLL (C# 사용 시)
+│   └── IKFastUnity_x64.dll            # C#/Unity DLL (C# 사용 시)
 ├── src/
-│   └── robots/                     # 로봇 플러그인 DLL들
+│   └── robots/                        # 로봇 플러그인 DLL들
 │       ├── gp25_12_ikfast.dll
 │       ├── gp25_ikfast.dll
 │       ├── gp4_ikfast.dll
@@ -46,7 +47,7 @@ ik-solver/
 │       ├── kj125_ikfast.dll
 │       ├── mpx3500_c00x_ikfast.dll
 │       └── mpx3500_c10x_ikfast.dll
-└── lib/                            # 의존성 DLL들
+└── lib/                               # 의존성 DLL들
     ├── liblapack.dll
     ├── openblas.dll
     ├── libgfortran-5.dll
@@ -91,16 +92,18 @@ YourProject/
 
 ```
 YourProject/
-├── ikfast_solver.pyd             # 이 저장소의 ikfast_solver.pyd
-├── robots/                       # 이 저장소의 src/robots/ 중 원하는 모델 dll 복사
+├── ikfast_solver.cp310-win_amd64.pyd  # 이 저장소의 ikfast_solver.cp310-win_amd64.pyd
+├── robots/                            # 이 저장소의 src/robots/ 중 원하는 모델 dll 복사
 │   ├── gp25_12_ikfast.dll
 │   ├── gp25_ikfast.dll
 │   └── ...
-└── lib/                          # 이 저장소의 lib/ 전체 복사
+└── lib/                               # 이 저장소의 lib/ 전체 복사
     ├── liblapack.dll
     ├── openblas.dll
     └── ...
 ```
+
+> **참고**: Python은 `import ikfast_solver` 실행 시 자동으로 `ikfast_solver.cp310-win_amd64.pyd`를 찾아 로드합니다. 원하면 `ikfast_solver.pyd`로 이름을 변경해도 작동합니다.
 
 #### Python 프로젝트 설정
 
@@ -145,38 +148,69 @@ ikfast_dll = ctypes.CDLL("path/to/bin/IKFastUnity_x64.dll")
 ikfast_dll.IKU_Init.argtypes = [ctypes.c_char_p]
 ikfast_dll.IKU_Init.restype = ctypes.c_int
 
+ikfast_dll.IKU_GetNumJoints.argtypes = [ctypes.c_char_p]
+ikfast_dll.IKU_GetNumJoints.restype = ctypes.c_int
+
 ikfast_dll.IKU_SolveIK.argtypes = [
-    ctypes.c_char_p,              # robot_name
-    ctypes.POINTER(ctypes.c_double),  # tcp_pose (12 doubles)
-    ctypes.POINTER(ctypes.c_double),  # out_solutions (max 6*48 doubles)
-    ctypes.POINTER(ctypes.c_int),     # out_num_solutions
-    ctypes.c_int                      # max_solutions
+    ctypes.c_char_p,                     # robot_name
+    ctypes.POINTER(ctypes.c_double),     # tcp_pose (12 doubles)
+    ctypes.POINTER(ctypes.c_double),     # out_solutions (dof*max_solutions)
+    ctypes.c_int                         # max_solutions
 ]
 ikfast_dll.IKU_SolveIK.restype = ctypes.c_int
+
+ikfast_dll.IKU_ComputeFK.argtypes = [
+    ctypes.c_char_p,                     # robot_name
+    ctypes.POINTER(ctypes.c_double),     # joints (dof doubles)
+    ctypes.POINTER(ctypes.c_double),     # out_eetrans (3 doubles)
+    ctypes.POINTER(ctypes.c_double)      # out_eerot (9 doubles)
+]
+ikfast_dll.IKU_ComputeFK.restype = ctypes.c_int
 
 # 초기화
 robots_dir = b"path/to/robots"
 if ikfast_dll.IKU_Init(robots_dir) == 0:
     raise RuntimeError("Failed to initialize IKFast")
 
+# 로봇 DOF 확인
+robot_name = b"gp25"
+dof = ikfast_dll.IKU_GetNumJoints(robot_name)
+print(f"Robot DOF: {dof}")
+
 # IK 계산
 tcp_pose = (ctypes.c_double * 12)(1, 0, 0, 0.5, 0, 1, 0, 0, 0, 0, 1, 0.3)
-solutions = (ctypes.c_double * (6 * 48))()  # 최대 48개 솔루션
-num_solutions = ctypes.c_int()
+max_solutions = 48
+solutions = (ctypes.c_double * (dof * max_solutions))()
 
-result = ikfast_dll.IKU_SolveIK(
-    b"gp25",
-    tcp_pose,
-    solutions,
-    ctypes.byref(num_solutions),
-    48
-)
+num_solutions = ikfast_dll.IKU_SolveIK(robot_name, tcp_pose, solutions, max_solutions)
 
-if result:
-    print(f"Found {num_solutions.value} solution(s)")
-    for i in range(num_solutions.value):
-        sol = [solutions[i*6 + j] for j in range(6)]
+if num_solutions > 0:
+    print(f"Found {num_solutions} solution(s)")
+    for i in range(num_solutions):
+        sol = [solutions[i*dof + j] for j in range(dof)]
         print(f"Solution {i+1}: {sol}")
+
+        # FK로 검증
+        out_trans = (ctypes.c_double * 3)()
+        out_rot = (ctypes.c_double * 9)()
+        joints_array = (ctypes.c_double * dof)(*sol)
+
+        if ikfast_dll.IKU_ComputeFK(robot_name, joints_array, out_trans, out_rot) == 1:
+            print(f"  FK Position: ({out_trans[0]:.6f}, {out_trans[1]:.6f}, {out_trans[2]:.6f})")
+else:
+    print("No solution found")
+
+# FK 단독 사용
+joints = (ctypes.c_double * dof)(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+out_trans = (ctypes.c_double * 3)()
+out_rot = (ctypes.c_double * 9)()
+
+if ikfast_dll.IKU_ComputeFK(robot_name, joints, out_trans, out_rot) == 1:
+    print(f"FK Position: ({out_trans[0]:.6f}, {out_trans[1]:.6f}, {out_trans[2]:.6f})")
+    print("FK Rotation matrix (row-major):")
+    print(f"  [{out_rot[0]:.6f}, {out_rot[1]:.6f}, {out_rot[2]:.6f}]")
+    print(f"  [{out_rot[3]:.6f}, {out_rot[4]:.6f}, {out_rot[5]:.6f}]")
+    print(f"  [{out_rot[6]:.6f}, {out_rot[7]:.6f}, {out_rot[8]:.6f}]")
 ```
 
 > **참고**: ctypes 방법은 C# API와 동일한 인터페이스를 사용합니다. Python 바인딩 모듈(`ikfast_solver.pyd`)이 더 간편하고 Pythonic합니다.
@@ -470,6 +504,89 @@ if is_solvable:
 else:
     print("No solution found")
 ```
+
+---
+
+### FK 함수
+
+### `ikfast_solver.compute_fk`
+
+주어진 관절 각도에 대한 **정기구학(Forward Kinematics)**을 계산하여 TCP 자세(위치 + 회전)를 반환합니다.
+
+**C# 선언**:
+```csharp
+public static (double[] translation, double[] rotation) compute_fk(
+    string robot_name,
+    double[] joints
+)
+```
+
+**Python**:
+```python
+ikfast_solver.compute_fk(
+    robot_name: str,
+    joints: np.ndarray              # [dof] joint angles
+) -> Tuple[np.ndarray, np.ndarray]  # (translation, rotation)
+```
+
+**파라미터**:
+- `robot_name`: 로봇 이름 (대소문자 구분 없음)
+- `joints`: 관절 각도 배열 [dof] (라디안)
+
+**반환값**: `((double[]) translation, (double[]) rotation)` 튜플
+- `translation`: 위치 벡터 [3] (x, y, z) 미터 단위
+- `rotation`: 회전 행렬 [9] (row-major 3x3 행렬)
+  - 형식: `[R11, R12, R13, R21, R22, R23, R31, R32, R33]`
+  - 전체 3x3 행렬:
+    ```
+    [R11  R12  R13]
+    [R21  R22  R23]
+    [R31  R32  R33]
+    ```
+
+**예제**:
+```csharp
+// C#: 관절 각도로부터 TCP 자세 계산
+double[] joints = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+
+var (translation, rotation) = ikfast_solver.compute_fk("gp25", joints);
+
+if (translation.Length > 0) {
+    Console.WriteLine($"Position: ({translation[0]:F6}, {translation[1]:F6}, {translation[2]:F6}) m");
+    Console.WriteLine("Rotation matrix (row-major):");
+    Console.WriteLine($"  [{rotation[0]:F6}, {rotation[1]:F6}, {rotation[2]:F6}]");
+    Console.WriteLine($"  [{rotation[3]:F6}, {rotation[4]:F6}, {rotation[5]:F6}]");
+    Console.WriteLine($"  [{rotation[6]:F6}, {rotation[7]:F6}, {rotation[8]:F6}]");
+} else {
+    Console.WriteLine("FK computation failed");
+}
+```
+
+```python
+# Python: 관절 각도로부터 TCP 자세 계산
+joints = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float64)
+
+translation, rotation = ikfast_solver.compute_fk("gp25", joints)
+
+print(f"Position: ({translation[0]:.6f}, {translation[1]:.6f}, {translation[2]:.6f}) m")
+print("Rotation matrix (row-major):")
+rotation_matrix = rotation.reshape(3, 3)
+print(rotation_matrix)
+
+# IK 검증 예제: FK로 IK 솔루션 확인
+tcp_pose = np.array([1, 0, 0, 0.5, 0, 1, 0, 0.0, 0, 0, 1, 0.3], dtype=np.float64)
+solutions, is_solvable = ikfast_solver.solve_ik("gp25", tcp_pose)
+
+if is_solvable and len(solutions) > 0:
+    # 첫 번째 IK 솔루션을 FK로 검증
+    fk_trans, fk_rot = ikfast_solver.compute_fk("gp25", solutions[0])
+
+    # 목표 위치와 FK 결과 비교
+    target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
+    position_error = np.linalg.norm(target_pos - fk_trans)
+    print(f"Position error: {position_error:.3e} m")  # 일반적으로 < 1μm
+```
+
 ---
 
 ## 테스트 실행
@@ -524,11 +641,12 @@ python tests\test_python.py
 
 ```
 ik-solver/
-├── README.md                       # 이 문서
+├── README.md                              # 이 문서
+├── ikfast_solver.cp310-win_amd64.pyd      # Python 3.10 모듈 (System/Conda 공통)
 ├── bin/
-│   └── IKFastUnity_x64.dll         # C#/Unity 통합 DLL
+│   └── IKFastUnity_x64.dll                # C#/Unity 통합 DLL
 ├── src/
-│   └── robots/                     # 로봇 플러그인 DLL들
+│   └── robots/                            # 로봇 플러그인 DLL들
 │       ├── gp25_12_ikfast.dll
 │       ├── gp25_ikfast.dll
 │       ├── gp4_ikfast.dll
@@ -536,19 +654,15 @@ ik-solver/
 │       ├── kj125_ikfast.dll
 │       ├── mpx3500_c00x_ikfast.dll
 │       └── mpx3500_c10x_ikfast.dll
-├── lib/                            # 의존성 DLL들
+├── lib/                                   # 의존성 DLL들
 │   ├── liblapack.dll
 │   ├── openblas.dll
 │   ├── libgfortran-5.dll
 │   ├── libquadmath-0.dll
 │   └── libwinpthread-1.dll
-├── tests/
-│   ├── Program.cs                  # C# 테스트 소스 코드
-│   └── bin/x64/Release/net10.0/
-│       └── TestIKFast.exe          # C# 테스트 실행 파일
-├── test_python.py                  # Python 테스트 스크립트
-└── bin/
-    └── ikfast_solver.pyd           # Python 모듈 (.pyd)
+└── tests/
+    ├── Program.cs                         # C# 테스트 소스 코드
+    └── test_python.py                     # Python 테스트 스크립트
 ```
 
 ---
