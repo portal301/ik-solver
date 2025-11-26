@@ -84,7 +84,10 @@ if hasattr(os, 'add_dll_directory'):
     if os.path.isdir(ROBOTS_DIR):
         os.add_dll_directory(os.path.abspath(ROBOTS_DIR))
 
-# Now load ikfast_solver module (this will preload local LAPACK from lib/)
+# Import numpy FIRST (before loading ikfast_solver which preloads local LAPACK)
+import numpy as np
+
+# Now load ikfast_solver module (this will preload local LAPACK)
 ikfast_solver = _load_ikfast_solver()
 
 
