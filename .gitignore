@@ -3,22 +3,73 @@ build/
 cmake-build-*/
 out/
 
-# Compiled files
-*.o
-*.so
-*.dll
-*.dylib
-*.exe
-*.a
-*.lib
+# C# build outputs
+tests/bin/
+tests/obj/
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
+# Python build outputs
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+
+# Compiled intermediate files
+*.o
+*.obj
+*.exp
+*.lib
+*.pdb
+*.ilk
+
+# Exception: Keep distributed binaries
+!ikfast_solver.cp310-win_amd64.pyd
+!bin/IKFastUnity_x64.dll
+!src/robots/*.dll
+!lib/*.dll
+
+# Exclude other .pyd files in bin/
+bin/*.pyd
 cmake_install.cmake
 install_manifest.txt
 CTestTestfile.cmake
 Makefile
+
+# Dev-only scripts and configs (exclude from user distribution)
+*.bat
+*.gitkeep
+setup.py
+check_module.py
+quick_test.py
+CMakeLists.txt
+BUILD.md
+cleanup_build.ps1
+
+# C# project files (use dotnet run instead)
+*.csproj
+*.csproj.user
+*.sln
+
+# Test files (keep only tests/ directory versions)
+/test_python.py
+/ikfast_solver.pyd
+
+# Keep only the versioned .pyd
+ikfast_solver.pyd
+!ikfast_solver.cp310-win_amd64.pyd
+
+# Source code (exclude from distribution - keep only binaries)
+src/*.cpp
+src/*.hpp
+src/robots/*.cpp
+include/*.h
+include/*.hpp
+
+# Additional build temp directories
+src/**/build/
+**/temp.win-*/
+
+# IDE files
 
 # IDE files
 .vscode/
@@ -31,3 +82,5 @@ Makefile
 # Generated files
 *.log
 *.out
+check_module.py
+*.bat

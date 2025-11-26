@@ -1,0 +1,2 @@
+# This file ensures the dependencies/ directory is tracked in Git
+# The DLL files should be copied from vcpkg before distribution
