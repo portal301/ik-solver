@@ -76,16 +76,15 @@ if hasattr(os, 'add_dll_directory'):
     if os.path.isdir(LIB_DIR):
         os.add_dll_directory(os.path.abspath(LIB_DIR))
 
-ikfast_solver = _load_ikfast_solver()
-
-# Import numpy AFTER setting PATH to prefer our BLAS/LAPACK DLLs
+# Import numpy FIRST (before loading ikfast_solver which preloads local LAPACK)
 import numpy as np
 
-import ikfast_solver
+# Now load ikfast_solver module (this will preload local LAPACK)
+ikfast_solver = _load_ikfast_solver()
 
 
 def main():
-    robot_name = "mpx3500_c00x"
+    robot_name = "kj125"
 
     # Target pose in Euler angles (for display)
     x, y, z = 0.5, 0.0, 0.3
