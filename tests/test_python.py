@@ -33,10 +33,14 @@ def _load_ikfast_solver():
         if os.path.isfile(p):
             spec = importlib.util.spec_from_file_location('ikfast_solver', p)
             if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                sys.modules['ikfast_solver'] = mod
-                return mod
+                try:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    sys.modules['ikfast_solver'] = mod
+                    return mod
+                except Exception as e:
+                    # Try next candidate if this one fails
+                    continue
     raise ImportError('ikfast_solver .pyd not found in expected locations')
 
 # Prefer bundled BLAS/LAPACK over conda MKL by prepending PATH BEFORE numpy import
@@ -47,6 +51,10 @@ VCPKG_BIN = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "install
 EXTRA_PATHS = [BIN_DIR, LIB_DIR, ROBOTS_DIR]
 if os.path.isdir(VCPKG_BIN):
     EXTRA_PATHS.insert(0, VCPKG_BIN)
+
+# CRITICAL: Import numpy FIRST before ANY environment changes
+# numpy needs conda's original PATH to find its DLLs
+import numpy as np
 
 # Allow isolation to avoid conda MKL loading (set IKFAST_ISOLATE_PATH=1)
 isolate_path = os.environ.get("IKFAST_ISOLATE_PATH") == "1"
@@ -66,6 +74,8 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # Windows DLL search path (Python 3.8+)
+# NOTE: LIB_DIR is intentionally excluded here to avoid interfering with numpy's BLAS/LAPACK
+# The ikfast_solver C++ code will explicitly load lib/liblapack.dll using LoadLibraryW
 if hasattr(os, 'add_dll_directory'):
     if os.path.isdir(VCPKG_BIN):
         os.add_dll_directory(os.path.abspath(VCPKG_BIN))
@@ -73,13 +83,8 @@ if hasattr(os, 'add_dll_directory'):
         os.add_dll_directory(os.path.abspath(BIN_DIR))
     if os.path.isdir(ROBOTS_DIR):
         os.add_dll_directory(os.path.abspath(ROBOTS_DIR))
-    if os.path.isdir(LIB_DIR):
-        os.add_dll_directory(os.path.abspath(LIB_DIR))
 
-# Import numpy FIRST (before loading ikfast_solver which preloads local LAPACK)
-import numpy as np
-
-# Now load ikfast_solver module (this will preload local LAPACK)
+# Now load ikfast_solver module (this will preload local LAPACK from lib/)
 ikfast_solver = _load_ikfast_solver()
 
 
@@ -103,9 +108,9 @@ def main():
 
     try:
         ikfast_solver.load_ik_plugins(ROBOTS_DIR)
-        print("✓ IK plugins loaded successfully\n")
+        print("[OK] IK plugins loaded successfully\n")
     except Exception as e:
-        print(f"✗ Failed to load IK plugins: {e}")
+        print(f"[FAIL] Failed to load IK plugins: {e}")
         return
 
     run_tests(robot_name, tcp_pose)
@@ -118,7 +123,7 @@ def run_tests(robot_name, tcp_pose):
 
     dof = ikfast_solver.get_num_joints(robot_name)
     if dof <= 0:
-        print(f"✗ Robot '{robot_name}' not loaded or not available")
+        print(f"[FAIL] Robot '{robot_name}' not loaded or not available")
         return
     print(f"DOF: {dof}\n")
 
@@ -146,7 +151,7 @@ def run_tests(robot_name, tcp_pose):
             err = np.linalg.norm(target_pos - fk_trans)
             print(f"  FK check (sol1): pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
     except Exception as e:
-        print(f"  ✗ IK all error: {e}")
+        print(f"  [FAIL] IK all error: {e}")
     print()
 
     # 2) IK with config
@@ -172,9 +177,9 @@ def run_tests(robot_name, tcp_pose):
                 err = np.linalg.norm(target_pos - fk_trans)
                 print(f"  FK: pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
             else:
-                print("  ✗ No solution found")
+                print("  [FAIL] No solution found")
         except Exception as e:
-            print(f"  ✗ Error: {e}")
+            print(f"  [FAIL] Error: {e}")
         print()
 
     # 3) IK nearest to current joints
@@ -186,7 +191,7 @@ def run_tests(robot_name, tcp_pose):
         )
         if is_solvable:
             deg = np.rad2deg(joints)
-            print("  ✓ Solution (nearest):")
+            print("  [OK] Solution (nearest):")
             for j, (r, d) in enumerate(zip(joints, deg)):
                 print(f"    J{j+1}: {d:8.2f}° ({r:8.4f} rad)")
             fk_trans, _ = ikfast_solver.compute_fk(robot_name, joints)
@@ -194,9 +199,9 @@ def run_tests(robot_name, tcp_pose):
             err = np.linalg.norm(target_pos - fk_trans)
             print(f"    FK: pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
         else:
-            print("  ✗ No solution found")
+            print("  [FAIL] No solution found")
     except Exception as e:
-        print(f"  ✗ Error: {e}")
+        print(f"  [FAIL] Error: {e}")
     print()
 
     print("=" * 60)
