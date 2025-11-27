@@ -41,7 +41,11 @@ def _load_ikfast_solver():
                 except Exception as e:
                     # Try next candidate if this one fails
                     continue
+<<<<<<< HEAD
     raise ImportError(f'ikfast_solver .pyd not found for Python {py_ver}. Expected: {candidates[0]}')
+=======
+    raise ImportError('ikfast_solver .pyd not found in expected locations')
+>>>>>>> f4b66b8 (예제 추가 및 오류 수정)
 
 # Prefer bundled BLAS/LAPACK over conda MKL by prepending PATH BEFORE numpy import
 # Resolve project root (ik-solver) from tests directory
@@ -84,10 +88,7 @@ if hasattr(os, 'add_dll_directory'):
     if os.path.isdir(ROBOTS_DIR):
         os.add_dll_directory(os.path.abspath(ROBOTS_DIR))
 
-# Import numpy FIRST (before loading ikfast_solver which preloads local LAPACK)
-import numpy as np
-
-# Now load ikfast_solver module (this will preload local LAPACK)
+# Now load ikfast_solver module (this will preload local LAPACK from lib/)
 ikfast_solver = _load_ikfast_solver()
 
 

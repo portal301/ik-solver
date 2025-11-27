@@ -18,6 +18,7 @@ class IKFastExample
 {
     // ========================================================================
     // P/Invoke 선언
+<<<<<<< HEAD
     // UTF-8 인코딩을 사용하여 한글 경로 지원
     // ========================================================================
 
@@ -30,14 +31,33 @@ class IKFastExample
     [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl)]
     private static extern int IKU_SolveIK(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
+=======
+    // ========================================================================
+
+    [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int IKU_Init([MarshalAs(UnmanagedType.LPStr)] string robots_dir);
+
+    [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPStr)] string robot_name);
+
+    [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int IKU_SolveIK(
+        [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+>>>>>>> f4b66b8 (예제 추가 및 오류 수정)
         double[] tcp_pose,
         double[] out_solutions,
         int max_solutions
     );
 
+<<<<<<< HEAD
     [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl)]
     private static extern int IKU_SolveIKWithConfig(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
+=======
+    [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int IKU_SolveIKWithConfig(
+        [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+>>>>>>> f4b66b8 (예제 추가 및 오류 수정)
         double[] tcp_pose,
         int shoulder_config,
         int elbow_config,
@@ -46,18 +66,30 @@ class IKFastExample
         out int is_solvable
     );
 
+<<<<<<< HEAD
     [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl)]
     private static extern int IKU_SolveIKWithJoint(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
+=======
+    [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int IKU_SolveIKWithJoint(
+        [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+>>>>>>> f4b66b8 (예제 추가 및 오류 수정)
         double[] tcp_pose,
         double[] current_joints,
         double[] out_joints,
         out int is_solvable
     );
 
+<<<<<<< HEAD
     [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl)]
     private static extern int IKU_ComputeFK(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
+=======
+    [DllImport("IKFastUnity_x64", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int IKU_ComputeFK(
+        [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+>>>>>>> f4b66b8 (예제 추가 및 오류 수정)
         double[] joints,
         double[] out_eetrans,
         double[] out_eerot
@@ -66,10 +98,16 @@ class IKFastExample
     // Configuration enum
     enum PoseConfig
     {
+<<<<<<< HEAD
         NULL = -1,
         RIGHT = 0, LEFT = 1,
         UP = 0, DOWN = 1,
         N_FLIP = 0, FLIP = 1
+=======
+        RIGHT = 0, LEFT = 1,
+        UP = 2, DOWN = 3,
+        N_FLIP = 4, FLIP = 5
+>>>>>>> f4b66b8 (예제 추가 및 오류 수정)
     }
 
     // ========================================================================
