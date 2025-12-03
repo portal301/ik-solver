@@ -19,7 +19,6 @@
 /// To compile without any main function as a shared object (might need -llapack):
 ///     gcc -fPIC -lstdc++ -DIKFAST_NO_MAIN -DIKFAST_CLIBRARY -shared -Wl,-soname,libik.so -o libik.so ik.cpp
 #define IKFAST_HAS_LIBRARY
-#define IKFAST_NAMESPACE kj125_ikfast
 #include "ikfast.h" // found inside share/openrave-X.Y/python/ikfast.h
 using namespace ikfast;
 
@@ -32,6 +31,17 @@ IKFAST_COMPILE_ASSERT(IKFAST_VERSION==0x1000004c);
 #include <limits>
 #include <algorithm>
 #include <complex>
+
+
+#ifdef _MSC_VER
+#ifndef __PRETTY_FUNCTION__
+#define __PRETTY_FUNCTION__ __FUNCDNAME__
+#endif
+#endif
+
+#ifndef __PRETTY_FUNCTION__
+#define __PRETTY_FUNCTION__ __func__
+#endif
 
 #ifndef IKFAST_ASSERT
 #include <stdexcept>
@@ -53,9 +63,17 @@ IKFAST_COMPILE_ASSERT(IKFAST_VERSION==0x1000004c);
 #endif
 
 #if defined(_MSC_VER)
+#if defined(_MSC_VER)
 #define IKFAST_ALIGNED16(x) __declspec(align(16)) x
 #else
 #define IKFAST_ALIGNED16(x) x __attribute((aligned(16)))
+#endif
+#else
+#if defined(_MSC_VER)
+#define IKFAST_ALIGNED16(x) __declspec(align(16)) x
+#else
+#define IKFAST_ALIGNED16(x) x __attribute((aligned(16)))
+#endif
 #endif
 
 #define IK2PI  ((IkReal)6.28318530717959)
@@ -67,11 +85,16 @@ IKFAST_COMPILE_ASSERT(IKFAST_VERSION==0x1000004c);
 #define isnan _isnan
 #endif
 #ifndef isinf
-#define isinf _isinf
+#define isinf std::isinf
 #endif
 //#ifndef isfinite
 //#define isfinite _isfinite
 //#endif
+#endif // _MSC_VER
+
+
+#ifdef _MSC_VER
+// Modern MSVC with C++17: use standard math functions (no compat macros needed)
 #endif // _MSC_VER
 
 // lapack routines
