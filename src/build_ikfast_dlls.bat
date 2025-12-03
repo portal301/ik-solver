@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
 rem 이 배치파일이 있는 위치 기준으로 경로 계산
 set SCRIPT_DIR=%~dp0
@@ -13,8 +13,43 @@ set INCLUDE_DIR=%SCRIPT_DIR%..\include
 
 rem 현재 VS 환경의 아키텍처 감지 (x86 또는 x64)
 if "%VSCMD_ARG_TGT_ARCH%"=="" (
-    echo WARNING: VS Developer Command Prompt not detected. Defaulting to x86.
-    set ARCH=x86
+    echo VS Developer Command Prompt not detected. Setting up x64 environment...
+    echo.
+
+    rem VS 2022 설치 경로 찾기 (여러 에디션 시도)
+    set "VCVARSALL="
+
+    if exist "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" (
+        set "VCVARSALL=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat"
+        echo Found: Build Tools
+    )
+    if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" (
+        set "VCVARSALL=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+        echo Found: Community
+    )
+    if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat" (
+        set "VCVARSALL=C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvarsall.bat"
+        echo Found: Professional
+    )
+    if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" (
+        set "VCVARSALL=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+        echo Found: Enterprise
+    )
+
+    rem vcvarsall.bat 실행하여 x64 환경 설정
+    if defined VCVARSALL (
+        echo Calling: !VCVARSALL!
+        call "!VCVARSALL!" x64
+        set ARCH=x64
+        echo VS 2022 x64 environment loaded successfully.
+        echo.
+    ) else (
+        echo ERROR: Visual Studio 2022 not found!
+        echo Please run this from "x64 Native Tools Command Prompt for VS 2022"
+        echo Or install Visual Studio 2022 Build Tools
+        pause
+        exit /b 1
+    )
 ) else (
     set ARCH=%VSCMD_ARG_TGT_ARCH%
 )
@@ -47,4 +82,4 @@ for %%F in ("%SRC_DIR%\*_ikfast.cpp") do (
 
 echo Done.
 endlocal
-pause
+rem pause

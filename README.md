@@ -50,6 +50,7 @@ ik-solver/
         ├── kj125_ikfast.dll
         ├── mpx3500_c00x_ikfast.dll
         ├── mpx3500_c10x_ikfast.dll
+        ├── rs007l_ikfast.dll          # NEW: Kawasaki RS007L
         ├── liblapack.dll              # Reference LAPACK (vcpkg)
         ├── openblas.dll               # OpenBLAS (LAPACK 의존성)
         ├── libgfortran-5.dll          # Fortran runtime (LAPACK 의존성)
@@ -67,7 +68,7 @@ ik-solver/
 YourProject/
 ├── IKFastUnity_x64.dll          # 이 저장소의 bin/IKFastUnity_x64.dll
 └── robots/                       # 이 저장소의 src/robots/ 전체 복사
-    ├── *_ikfast.dll              # 로봇 플러그인 DLL들
+    ├── *_ikfast.dll              # 로봇 플러그인 DLL들 (8개 로봇)
     ├── liblapack.dll             # LAPACK 라이브러리
     ├── openblas.dll              # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...    # Fortran 런타임 DLL들
@@ -90,7 +91,7 @@ YourProject/
 YourProject/
 ├── ikfast_solver.cp310-win_amd64.pyd  # 이 저장소의 ikfast_solver.cp310-win_amd64.pyd
 └── robots/                            # 이 저장소의 src/robots/ 전체 복사
-    ├── *_ikfast.dll                   # 로봇 플러그인 DLL들
+    ├── *_ikfast.dll                   # 로봇 플러그인 DLL들 (8개 로봇)
     ├── liblapack.dll                  # LAPACK 라이브러리
     ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...         # Fortran 런타임 DLL들
