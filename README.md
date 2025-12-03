@@ -42,7 +42,6 @@ ik-solver/
 ├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈 (권장)
 ├── IKFastUnity_x64.dll                    # C#/Unity DLL (C# 사용 시)
 └── src/
-<<<<<<< HEAD
     └── robots/                            # 로봇 플러그인 DLL들 (13개) + LAPACK/BLAS
         ├── kawasaki/
         │   ├── KJ125/kj125_ikfast.dll
@@ -64,22 +63,6 @@ ik-solver/
         ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
         ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
         └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
-=======
-    └── robots/                        # 로봇 플러그인 DLL들 + LAPACK/BLAS
-        ├── gp25_12_ikfast.dll
-        ├── gp25_ikfast.dll
-        ├── gp4_ikfast.dll
-        ├── gp50_ikfast.dll
-        ├── kj125_ikfast.dll
-        ├── mpx3500_c00x_ikfast.dll
-        ├── mpx3500_c10x_ikfast.dll
-        ├── rs007l_ikfast.dll          # NEW: Kawasaki RS007L
-        ├── liblapack.dll              # Reference LAPACK (vcpkg)
-        ├── openblas.dll               # OpenBLAS (LAPACK 의존성)
-        ├── libgfortran-5.dll          # Fortran runtime (LAPACK 의존성)
-        ├── libgcc_s_seh-1.dll         # GCC runtime (LAPACK 의존성)
-        └── libquadmath-0.dll          # Quad-precision math (LAPACK 의존성)
->>>>>>> 7ea326c (미켈로 좌표계 변환)
 ```
 
 ### 1. C# / Unity 사용 시
@@ -90,7 +73,6 @@ ik-solver/
 YourProject/
 ├── IKFastUnity_x64.dll          # 이 저장소의 IKFastUnity_x64.dll
 └── robots/                       # 이 저장소의 src/robots/ 전체 복사
-<<<<<<< HEAD
     ├── kawasaki/                 # Kawasaki 로봇 DLL (2개)
     │   ├── KJ125/kj125_ikfast.dll
     │   └── RS007L/rs007l_ikfast.dll
@@ -98,9 +80,6 @@ YourProject/
     │   ├── GP4/gp4_ikfast.dll
     │   ├── GP7/gp7_ikfast.dll
     │   ├── ... (총 11개)
-=======
-    ├── *_ikfast.dll              # 로봇 플러그인 DLL들 (8개 로봇)
->>>>>>> 7ea326c (미켈로 좌표계 변환)
     ├── liblapack.dll             # LAPACK 라이브러리
     ├── openblas.dll              # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...    # Fortran 런타임 DLL들
@@ -213,18 +192,11 @@ public class SimpleIKTest : MonoBehaviour
 YourProject/
 ├── ikfast_solver.cp3XX-win_amd64.pyd  # Python 버전에 맞는 .pyd 파일
 └── robots/                            # 이 저장소의 src/robots/ 전체 복사
-<<<<<<< HEAD
     ├── kawasaki/                  # Kawasaki 로봇 DLL (2개)
     ├── yaskawa/                   # Yaskawa 로봇 DLL (11개)
     ├── liblapack.dll              # LAPACK 라이브러리
     ├── openblas.dll               # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...     # Fortran 런타임 DLL들
-=======
-    ├── *_ikfast.dll                   # 로봇 플러그인 DLL들 (8개 로봇)
-    ├── liblapack.dll                  # LAPACK 라이브러리
-    ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
-    └── libgfortran-5.dll, ...         # Fortran 런타임 DLL들
->>>>>>> 7ea326c (미켈로 좌표계 변환)
 ```
 
 **Python 버전별 .pyd 파일 선택**:

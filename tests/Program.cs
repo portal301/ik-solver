@@ -238,8 +238,8 @@ namespace TestIKFast
             try
             {
                 string exeDir = AppContext.BaseDirectory;
-                string testsDir = Path.GetFullPath(Path.Combine(exeDir, "..", "..", "..", ".."));
-                string ikSolverDir = Path.GetFullPath(Path.Combine(testsDir, ".."));
+                string testsDir = Path.GetFullPath(Path.Combine(exeDir, "..", "..", "..", "..")); // -> tests
+                string ikSolverDir = Path.GetFullPath(Path.Combine(testsDir, "..")); // -> ik-solver
                 string robotsDir = Path.Combine(ikSolverDir, "src", "robots");
                 string libDir = Path.Combine(ikSolverDir, "lib");
                 string vcpkgRoot = Environment.GetEnvironmentVariable("VCPKG_ROOT") ?? @"C:\dev\vcpkg";
