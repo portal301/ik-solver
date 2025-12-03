@@ -89,6 +89,6 @@ for /R "%SRC_DIR%" %%F in (*_ikfast.cpp) do (
     )
 )
 
-echo.
-echo Done. Only DLL files remain in robots folder.
-echo.
+echo Done.
+endlocal
+rem pause
