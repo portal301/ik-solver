@@ -74,12 +74,15 @@ rem 링크 옵션 (LAPACK + BLAS 라이브러리)
 rem lapack-reference는 동적 라이브러리로 LAPACK 함수(dgetrf_, dgetrs_, dgeev_) 제공
 set LINK_OPTS="%LAPACK_LIB%" "%OPENBLAS_LIB%"
 
-rem SRC_DIR 안의 *_ikfast.cpp 전부에 대해 DLL 빌드
-for %%F in ("%SRC_DIR%\*_ikfast.cpp") do (
+rem SRC_DIR 하위 모든 *_ikfast.cpp에 대해 DLL 빌드 (제조사/모델별 하위 폴더 지원)
+for /R "%SRC_DIR%" %%F in (*_ikfast.cpp) do (
     echo Building %%F ...
     cl %CL_OPTS% "%%F" /Fo:"%%~dpnF.obj" /Fe:"%%~dpnF.dll" /link %LINK_OPTS%
+    
+    rem 중간 산물 삭제 (exp, lib, obj)
+    if exist "%%~dpnF.exp" del "%%~dpnF.exp"
+    if exist "%%~dpnF.lib" del "%%~dpnF.lib"
+    if exist "%%~dpnF.obj" del "%%~dpnF.obj"
 )
 
 echo Done.
-endlocal
-rem pause

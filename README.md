@@ -22,11 +22,9 @@ IKFast 기반 IK Solver 통합 라이브러리입니다. 플러그인 아키텍�
 
 ---
 
-## 지원 로봇
+## 지원 로봇 (총 13개)
 
-https://docs.google.com/spreadsheets/d/1bWMIM33Fbh5iHvK675droTZEdjJfaGHxCUr01nXqi9A/
-
-ik-fast를 현재 지원중인 로봇 리스트는 엑셀링크를 참고
+**상세 정보**: [configs/robots.xlsx](../configs/robots.xlsx) 참고
 
 ---
 
@@ -38,19 +36,18 @@ ik-fast를 현재 지원중인 로봇 리스트는 엑셀링크를 참고
 
 ```
 ik-solver/
-├── ikfast_solver.cp310-win_amd64.pyd  # Python 3.10 모듈 (System/Conda 공통)
+├── ikfast_solver.cp312-win_amd64.pyd  # Python 3.12 모듈 (빌드 시 자동 생성)
 ├── bin/
 │   └── IKFastUnity_x64.dll            # C#/Unity DLL (C# 사용 시)
 └── src/
-    └── robots/                        # 로봇 플러그인 DLL들 + LAPACK/BLAS
-        ├── gp25_12_ikfast.dll
-        ├── gp25_ikfast.dll
-        ├── gp4_ikfast.dll
-        ├── gp50_ikfast.dll
-        ├── kj125_ikfast.dll
-        ├── mpx3500_c00x_ikfast.dll
-        ├── mpx3500_c10x_ikfast.dll
-        ├── rs007l_ikfast.dll          # NEW: Kawasaki RS007L
+    └── robots/                        # 로봇 플러그인 DLL들 (13개) + LAPACK/BLAS
+        ├── kawasaki/
+        │   ├── KJ125/kj125_ikfast.dll
+        │   └── RS007L/rs007l_ikfast.dll
+        ├── yaskawa/
+        │   ├── GP4/gp4_ikfast.dll
+        │   ├── GP7/gp7_ikfast.dll
+            ...
         ├── liblapack.dll              # Reference LAPACK (vcpkg)
         ├── openblas.dll               # OpenBLAS (LAPACK 의존성)
         ├── libgfortran-5.dll          # Fortran runtime (LAPACK 의존성)
@@ -66,7 +63,8 @@ ik-solver/
 YourProject/
 ├── IKFastUnity_x64.dll          # 이 저장소의 bin/IKFastUnity_x64.dll
 └── robots/                       # 이 저장소의 src/robots/ 전체 복사
-    ├── *_ikfast.dll              # 로봇 플러그인 DLL들 (8개 로봇)
+    ├── kawasaki/                 # Kawasaki 로봇 DLL (2개)
+    ├── yaskawa/                  # Yaskawa 로봇 DLL (11개)
     ├── liblapack.dll             # LAPACK 라이브러리
     ├── openblas.dll              # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...    # Fortran 런타임 DLL들
@@ -87,19 +85,20 @@ YourProject/
 
 ```
 YourProject/
-├── ikfast_solver.cp310-win_amd64.pyd  # 이 저장소의 ikfast_solver.cp310-win_amd64.pyd
+├── ikfast_solver.cp312-win_amd64.pyd  # 이 저장소의 ikfast_solver.cp312-win_amd64.pyd
 └── robots/                            # 이 저장소의 src/robots/ 전체 복사
-    ├── *_ikfast.dll                   # 로봇 플러그인 DLL들 (8개 로봇)
+    ├── kawasaki/                      # Kawasaki 로봇 DLL (2개)
+    ├── yaskawa/                       # Yaskawa 로봇 DLL (11개)
     ├── liblapack.dll                  # LAPACK 라이브러리
     ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...         # Fortran 런타임 DLL들
 ```
 
-> **참고**: Python은 `import ikfast_solver` 실행 시 자동으로 `ikfast_solver.cp310-win_amd64.pyd`를 찾아 로드합니다. 원하면 `ikfast_solver.pyd`로 이름을 변경해도 작동합니다.
+> **참고**: Python은 `import ikfast_solver` 실행 시 자동으로 `ikfast_solver.cp312-win_amd64.pyd`를 찾아 로드합니다. 원하면 `ikfast_solver.pyd`로 이름을 변경해도 작동합니다.
 
 #### Python 프로젝트 설정
 
-> **참고**: System Python 3.10과 Conda Python 3.10 모두 지원됩니다.
+> **참고**: Python 3.12+ 필요. uv 또는 conda 환경 모두 지원됩니다. 빌드 스크립트가 자동으로 Python 경로와 버전을 감지합니다.
 
 **Python 바인딩 모듈 사용**
 
@@ -736,7 +735,7 @@ dotnet run -c Release -p:Platform=x64
 python tests\test_python.py
 ```
 
-> **참고**: System Python 3.10 또는 Conda Python 3.10이 필요합니다.
+> **참고**: Python 3.12+ 필요. uv 또는 conda 환경 모두 지원됩니다.
 
 **DLL 의존성 처리**:
 - 테스트 스크립트가 자동으로 `src/robots/` 디렉토리를 DLL 검색 경로에 추가합니다 (LAPACK 포함)
@@ -751,13 +750,11 @@ python tests\test_python.py
 3. **가장 가까운 IK 솔루션** (`IKU_SolveIKWithJoint`): 현재 관절 각도와 가장 가까운 IK 솔루션 계산
 4. **FK 검증**: 각 IK 솔루션을 FK로 역변환하여 정확도 확인 (오차 < 1μm)
 
-**기본 테스트 로봇**: MPX3500_C00X (코드에서 변경 가능)
+**기본 테스트**: 모든 로봇 자동 테스트 (13개)
 
-**로봇 변경 방법**:
-- C#: Program.cs에서 `robotName` 변수 수정
-- Python: `test_python.py`에서 `robot_name` 변수 수정
-
-사용 가능한 로봇: `"gp25"`, `"gp25_12"`, `"gp4"`, `"gp50"`, `"kj125"`, `"mpx3500_c00x"`, `"mpx3500_c10x"`
+**사용 가능한 로봇** (대소문자 구분 없음):
+- Kawasaki: `"kj125"`, `"rs007l"`
+- Yaskawa: `"gp4"`, `"gp7"`, `"gp8"`, `"gp8l"`, `"gp10"`, `"gp12"`, `"gp25"`, `"gp25_12"`, `"gp50"`, `"mpx3500_c00x"`, `"mpx3500_c10x"`
 
 ---
 
@@ -766,29 +763,44 @@ python tests\test_python.py
 ```
 ik-solver/
 ├── README.md                              # 이 문서
-├── ikfast_solver.cp310-win_amd64.pyd      # Python 3.10 모듈 (System/Conda 공통)
+├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈 (빌드 시 자동 생성)
 ├── bin/
 │   └── IKFastUnity_x64.dll                # C#/Unity 통합 DLL
 ├── src/
-│   └── robots/                            # 로봇 플러그인 DLL들 + LAPACK/BLAS
-│       ├── gp25_12_ikfast.dll
-│       ├── gp25_ikfast.dll
-│       ├── gp4_ikfast.dll
-│       ├── gp50_ikfast.dll
-│       ├── kj125_ikfast.dll
-│       ├── mpx3500_c00x_ikfast.dll
-│       ├── mpx3500_c10x_ikfast.dll
+│   ├── ikfast_core.hpp                    # 관절 제한 데이터
+│   ├── ikfast_core.cpp                    # 플러그인 로더
+│   ├── ikfast_pybind.cpp                  # Python 바인딩
+│   ├── ikfast_unity.cpp                   # C# 래퍼
+│   ├── build_ikfast_dlls.bat              # DLL 빌드 스크립트
+│   ├── build_unity_dll.bat                # Unity DLL 빌드
+│   └── robots/                            # 로봇 플러그인 DLL들 (13개) + LAPACK/BLAS
+│       ├── kawasaki/
+│       │   ├── KJ125/kj125_ikfast.dll
+│       │   └── RS007L/rs007l_ikfast.dll
+│       ├── yaskawa/
+│       │   ├── GP4/gp4_ikfast.dll
+│       │   ├── GP7/gp7_ikfast.dll
+│       │   ├── GP8/gp8_ikfast.dll
+│       │   ├── GP8L/gp8l_ikfast.dll
+│       │   ├── GP10/gp10_ikfast.dll
+│       │   ├── GP12/gp12_ikfast.dll
+│       │   ├── GP25/gp25_ikfast.dll
+│       │   ├── GP25-12/gp25_12_ikfast.dll
+│       │   ├── GP50/gp50_ikfast.dll
+│       │   ├── MPX3500-C00X/mpx3500_c00x_ikfast.dll
+│       │   └── MPX3500-C10X/mpx3500_c10x_ikfast.dll
 │       ├── liblapack.dll                  # Reference LAPACK (vcpkg)
 │       ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
 │       ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
 │       ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
 │       └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
 ├── examples/
-│   ├── example_python.py                  # Python 사용 예제
-│   └── example_csharp.cs                  # C# 사용 예제
+│   └── example_python.py                  # Python 사용 예제
 └── tests/
+    ├── unified_test.py                    # Python 통합 테스트
     ├── Program.cs                         # C# 테스트 소스 코드
-    └── test_python.py                     # Python 테스트 스크립트
+    ├── build_and_run.bat                  # 빌드 및 실행
+    └── run_unified_tests.bat              # 테스트 실행
 ```
 
 ---
@@ -889,28 +901,30 @@ KJ125와 MPX3500 시리즈 등 일반적이지 않은 관절구조를 지닌 로
    # Python 모듈 빌드
    python setup.py build_ext --inplace --force
 
-   # Conda 환경용 복사
-   Copy-Item ikfast_solver.cp310-win_amd64.pyd bin\ikfast_solver.cp310-win_amd64.conda.pyd -Force
-
    # 테스트
-   python .\tests\test_python.py
+   python .\tests\unified_test.py
    ```
 
 **검증**:
-정상 작동하면 다음과 같은 메시지가 나타나고, IK 계산이 완료됩니다:
+정상 작동하면 다음과 같은 메시지가 나타나고, 모든 로봇의 IK 계산이 완료됩니다:
 ```
-Preloaded local LAPACK: C:\...\ik-solver\src\robots\liblapack.dll
-[DEBUG] LAPACK DLL loaded: C:\...\ik-solver\src\robots\liblapack.dll
-[DEBUG] _ComputeIk returned: 1
-Found X solution(s)
+Testing 13 robot(s):
+--------------------------------------------------------------------------------
+GP4       | solve_ik =OK (08 sol, err=0.000000)  ...
+...
+KJ125     | solve_ik =OK (08 sol, err=0.000000)  ...
+--------------------------------------------------------------------------------
+Result: 13/13 robots passed all tests
 ```
 
 **참고**: OpenBLAS 대신 reference LAPACK을 사용하는 이유는 OpenBLAS의 `dgeev_` 구현이 특정 입력에서 불안정할 수 있기 때문입니다. Reference LAPACK은 느리지만 매우 안정적입니다.
 
 ---
 
----
-**최종 업데이트**: 2025-12-03
+**최종 업데이트**: 2025-12-08
+
+**지원 로봇**: 13개 (Kawasaki 2개, Yaskawa 11개)
+**상태**: Production Ready ✅
 
 **로봇의 IK 추가는 순차적으로 이루어집니다. 급하게 필요한 모델이 있으면 정태준에게 문의주세요**
 
