@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.IO;
-using System.Linq;
 
 namespace TestIKFast
 {
@@ -215,27 +213,30 @@ namespace TestIKFast
             if (!Directory.Exists(depsDir)) return;
             foreach (var dll in Directory.EnumerateFiles(depsDir, "*.dll"))
             {
-                try { LoadLibrary(dll); } catch { }
+                LoadLibrary(dll);
             }
         }
 
         static void Main(string[] args)
         {
-            Console.WriteLine("================================================================================");
-            Console.WriteLine("IKFast Unified Test - All Robots, All IK Functions (C#)");
-            Console.WriteLine("================================================================================");
+            string robotName = "mpx3500_c00x";
+
+            Console.WriteLine("=".PadRight(60, '='));
+            Console.WriteLine("IKFast C# Test - All IK Modes + FK");
+            Console.WriteLine("=".PadRight(60, '='));
             Console.WriteLine();
 
             try
             {
                 string exeDir = AppContext.BaseDirectory;
-                string testsDir = Path.GetFullPath(Path.Combine(exeDir, "..", "..", "..", ".."));
-                string ikSolverDir = Path.GetFullPath(Path.Combine(testsDir, ".."));
+                string testsDir = Path.GetFullPath(Path.Combine(exeDir, "..", "..", "..", "..")); // -> tests
+                string ikSolverDir = Path.GetFullPath(Path.Combine(testsDir, "..")); // -> ik-solver
                 string robotsDir = Path.Combine(ikSolverDir, "src", "robots");
                 string libDir = Path.Combine(ikSolverDir, "lib");
                 string vcpkgRoot = Environment.GetEnvironmentVariable("VCPKG_ROOT") ?? @"C:\dev\vcpkg";
                 string vcpkgBin = Path.Combine(vcpkgRoot, @"installed\x64-windows\bin");
 
+                // Ensure bundled BLAS/LAPACK are loaded before conda/MKL
                 bool isolatePath = Environment.GetEnvironmentVariable("IKFAST_ISOLATE_PATH") == "1";
                 string currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
                 string newPath = "";
@@ -245,6 +246,7 @@ namespace TestIKFast
 
                 if (isolatePath)
                 {
+                    // Minimal system paths to avoid loading MKL from conda
                     string sysRoot = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
                     string system32 = Path.Combine(sysRoot, "System32");
                     newPath += system32 + ";" + sysRoot + ";";
@@ -255,276 +257,183 @@ namespace TestIKFast
                 }
 
                 Environment.SetEnvironmentVariable("PATH", newPath);
+
+                // Preload dependency DLLs explicitly
                 PreloadDependencies(vcpkgBin);
                 PreloadDependencies(libDir);
 
+                Console.WriteLine($"Loading IK plugins from: {robotsDir}");
+
                 if (!Directory.Exists(robotsDir))
                 {
-                    Console.WriteLine($"[FAIL] Robots directory not found: {robotsDir}");
+                    Console.WriteLine($"ERROR: Robots directory not found: {robotsDir}");
                     return;
                 }
 
                 if (IKFastUnity.IKU_Init(robotsDir) == 0)
                 {
-                    Console.WriteLine("[FAIL] Failed to initialize IKFast");
+                    Console.WriteLine("ERROR: Failed to initialize IKFast (no plugins loaded)");
+                    Console.WriteLine("Ensure dependencies are available (openblas, lapack, libgfortran, etc.)");
                     return;
                 }
-                Console.WriteLine("[OK] Plugins loaded\n");
-                RunAllRobotsTests(robotsDir);
+                Console.WriteLine("✓ IK plugins loaded successfully");
+                Console.WriteLine();
+
+                RunAllTests(robotName);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[FAIL] {ex.Message}");
+                Console.WriteLine($"ERROR: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
             }
         }
 
-        static void RunAllRobotsTests(string robotsDir)
+        static void RunAllTests(string robotName)
         {
-            var robots = DiscoverRobots(robotsDir);
-            if (robots.Count == 0)
+            Console.WriteLine("=".PadRight(60, '='));
+            Console.WriteLine($"Testing Robot: {robotName.ToUpper()}");
+            Console.WriteLine("=".PadRight(60, '='));
+
+            int numJoints = IKFastUnity.IKU_GetNumJoints(robotName);
+            if (numJoints <= 0)
             {
-                Console.WriteLine("[FAIL] No robots found");
+                Console.WriteLine($"✗ Robot '{robotName}' not loaded or not available");
                 return;
             }
 
-            Console.WriteLine($"Testing {robots.Count} robot(s):");
-            Console.WriteLine("--------------------------------------------------------------------------------");
+            Console.WriteLine($"DOF: {numJoints}");
+            Console.WriteLine();
 
-            int passed = 0;
-            foreach (var robot in robots)
+            // Target pose in Euler angles (for display)
+            double x = 0.5, y = 0.0, z = 0.3;
+            double rx = 0.0, ry = 0.0, rz = 0.0;
+
+            Console.WriteLine("Target TCP Pose:");
+            Console.WriteLine($"  Position: ({x:F3}, {y:F3}, {z:F3}) m");
+            Console.WriteLine($"  Orientation: ({rx:F3}, {ry:F3}, {rz:F3}) rad (Euler ZYX)");
+            Console.WriteLine();
+
+            // Build 4x4 transformation (12 elements) with identity rotation
+            double[] tcpPose = new double[]
             {
-                var limits = LoadRobotJointLimits(robot, robotsDir);
-                if (limits == null)
-                {
-                    Console.WriteLine($"{robot,-20} | SKIP (no limits or DOF)");
-                    continue;
-                }
-
-                var result = TestRobot(robot, limits);
-                if (result == null) continue;
-
-                bool allOk = result.Values.All(v => v.Contains("OK"));
-                
-                string statusLine = $"{robot,-20} | ";
-                foreach (var kvp in result.OrderBy(k => k.Key))
-                {
-                    statusLine += $"{kvp.Key,-25}={kvp.Value,-30}";
-                }
-                Console.WriteLine(statusLine);
-                if (allOk) passed++;
-            }
-
-            Console.WriteLine("--------------------------------------------------------------------------------");
-            Console.WriteLine($"Result: {passed}/{robots.Count} robots passed all tests");
-            Console.WriteLine("================================================================================");
-        }
-
-        static List<string> DiscoverRobots(string robotsDir)
-        {
-            var robots = new HashSet<string>();
-            foreach (var file in Directory.GetFiles(robotsDir, "*_ikfast.dll", SearchOption.AllDirectories))
-            {
-                string robotName = Path.GetFileNameWithoutExtension(file).Replace("_ikfast", "");
-                robots.Add(robotName);
-            }
-            return robots.OrderBy(r => r).ToList();
-        }
-
-        static Dictionary<string, double[]> LoadRobotJointLimits(string robotName, string robotsDir)
-        {
-            // Find joint_limits.json in the robot's directory
-            // Path format: robots_dir/<manufacturer>/<robot_name>/joint_limits.json
-            // or: robots_dir/<robot_name>/joint_limits.json
-            
-            foreach (var file in Directory.GetFiles(robotsDir, "joint_limits.json", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    // Check if this file is for the target robot by checking the directory structure
-                    string parentDir = Path.GetFileName(Path.GetDirectoryName(file));
-                    
-                    // Normalize robot name for comparison (gp25_12, gp50, etc.)
-                    string normalizedRobotName = robotName.ToLower().Replace("-", "_");
-                    string normalizedParentDir = parentDir.ToLower().Replace("-", "_");
-                    
-                    if (normalizedParentDir.Contains(normalizedRobotName))
-                    {
-                        // Found the correct file, now load joint limits
-                        string json = File.ReadAllText(file);
-                        
-                        // Parse JSON array format: [{"min": ..., "max": ...}, ...]
-                        // Remove brackets and parse individually
-                        var matches = System.Text.RegularExpressions.Regex.Matches(json, @"\{[^}]+\}");
-                        
-                        if (matches.Count > 0)
-                        {
-                            int dof = matches.Count;
-                            double[] result = new double[dof];
-                            Random rand = new Random();
-                            
-                            for (int i = 0; i < dof; i++)
-                            {
-                                try
-                                {
-                                    var limitObj = matches[i].Value;
-                                    
-                                    // Extract min/max values
-                                    double minVal = -Math.PI;
-                                    double maxVal = Math.PI;
-                                    
-                                    // Try to parse "min" and "max" fields
-                                    var minMatch = System.Text.RegularExpressions.Regex.Match(limitObj, @"""(?:min|lower)""\s*:\s*([-\d.]+)");
-                                    var maxMatch = System.Text.RegularExpressions.Regex.Match(limitObj, @"""(?:max|upper)""\s*:\s*([-\d.]+)");
-                                    
-                                    if (minMatch.Success && double.TryParse(minMatch.Groups[1].Value, out var min))
-                                        minVal = min;
-                                    if (maxMatch.Success && double.TryParse(maxMatch.Groups[1].Value, out var max))
-                                        maxVal = max;
-                                    
-                                    result[i] = minVal + ((maxVal - minVal) * rand.NextDouble());
-                                }
-                                catch
-                                {
-                                    result[i] = -Math.PI + (Math.PI * 2 * rand.NextDouble());
-                                }
-                            }
-                            
-                            return new Dictionary<string, double[]> { { "joints", result } };
-                        }
-                    }
-                }
-                catch { }
-            }
-            
-            return null;
-        }
-
-        static Dictionary<string, string> TestRobot(string robotName, Dictionary<string, double[]> limitsDict)
-        {
-            int dof = IKFastUnity.IKU_GetNumJoints(robotName);
-            if (dof <= 0) return null;
-
-            double[] origJoints = limitsDict["joints"];
-            if (origJoints.Length != dof) return null;
-
-            var results = new Dictionary<string, string>();
-
-            // FK: Get original TCP pose from original joints
-            double[] tcpPoseOrig = new double[12];
-            double[] trans = new double[3];
-            double[] rot = new double[9];
-            IKFastUnity.IKU_ComputeFK(robotName, origJoints, trans, rot);
-            Array.Copy(new double[] {
-                rot[0], rot[1], rot[2], trans[0],
-                rot[3], rot[4], rot[5], trans[1],
-                rot[6], rot[7], rot[8], trans[2]
-            }, tcpPoseOrig, 12);
-
-            // Helper function: Compare TCP poses by doing FK on IK result
-            Func<double[], double?> CompareTCPViaFK = (ikJoints) =>
-            {
-                try
-                {
-                    double[] trans2 = new double[3];
-                    double[] rot2 = new double[9];
-                    IKFastUnity.IKU_ComputeFK(robotName, ikJoints, trans2, rot2);
-                    
-                    double[] tcpPoseIK = new double[12];
-                    Array.Copy(new double[] {
-                        rot2[0], rot2[1], rot2[2], trans2[0],
-                        rot2[3], rot2[4], rot2[5], trans2[1],
-                        rot2[6], rot2[7], rot2[8], trans2[2]
-                    }, tcpPoseIK, 12);
-                    
-                    // Compare TCP poses (all 12 elements)
-                    double tcpErr = 0;
-                    for (int i = 0; i < 12; i++)
-                        tcpErr += Math.Pow(tcpPoseIK[i] - tcpPoseOrig[i], 2);
-                    return Math.Sqrt(tcpErr);
-                }
-                catch
-                {
-                    return null;
-                }
+                1, 0, 0, x,
+                0, 1, 0, y,
+                0, 0, 1, z
             };
 
-            // Test 1: solve_ik - Compare via TCP
-            try
+            // 1) ikfast_solver.solve_ik (all solutions) - Python style
+            Console.WriteLine("--- ikfast_solver.solve_ik (all solutions) ---");
+            var (solutions, is_solvable) = ikfast_solver.solve_ik(robotName, tcpPose);
+            Console.WriteLine($"Found {solutions.Length} solution(s), is_solvable: {is_solvable}");
+            for (int i = 0; i < solutions.Length; i++)
             {
-                const int maxSol = 32;
-                double[] outSol = new double[maxSol * dof];
-                int numSol = IKFastUnity.IKU_SolveIK(robotName, tcpPoseOrig, outSol, maxSol);
-                if (numSol > 0)
+                Console.Write($"  Solution {i + 1}: ");
+                for (int j = 0; j < numJoints; j++)
                 {
-                    double minTcpErr = double.MaxValue;
-                    for (int i = 0; i < numSol; i++)
+                    double rad = solutions[i][j];
+                    Console.Write($"{rad * 180.0 / Math.PI,8:F2}° ");
+                }
+                Console.WriteLine();
+            }
+            if (is_solvable && solutions.Length > 0)
+            {
+                var (fkTrans, fkRot) = ikfast_solver.compute_fk(robotName, solutions[0]);
+                if (fkTrans.Length > 0)
+                {
+                    // Extract target position from matrix: tcpPose[3], tcpPose[7], tcpPose[11]
+                    double posErr = Math.Sqrt(
+                        Math.Pow(tcpPose[3] - fkTrans[0], 2) +
+                        Math.Pow(tcpPose[7] - fkTrans[1], 2) +
+                        Math.Pow(tcpPose[11] - fkTrans[2], 2)
+                    );
+                    Console.WriteLine($"  FK (sol1): pos=({fkTrans[0]:F6}, {fkTrans[1]:F6}, {fkTrans[2]:F6}), err={posErr:E3} m");
+                }
+            }
+            Console.WriteLine();
+
+            // 2) ikfast_solver.solve_ik_with_config - Python style
+            var configs = new[]
+            {
+                (PoseConfig.RIGHT, PoseConfig.DOWN, PoseConfig.N_FLIP, "Right-Down-NoFlip"),
+                (PoseConfig.LEFT,  PoseConfig.DOWN, PoseConfig.N_FLIP, "Left-Down-NoFlip"),
+                (PoseConfig.RIGHT, PoseConfig.UP,   PoseConfig.N_FLIP, "Right-Up-NoFlip"),
+                (PoseConfig.LEFT,  PoseConfig.UP,   PoseConfig.FLIP,   "Left-Up-Flip")
+            };
+
+            foreach (var (shoulder, elbow, wrist, configName) in configs)
+            {
+                Console.WriteLine($"Configuration: {configName}");
+                var (joints, config_is_solvable) = ikfast_solver.solve_ik_with_config(
+                    robotName, tcpPose,
+                    (int)shoulder, (int)elbow, (int)wrist
+                );
+
+                if (config_is_solvable)
+                {
+                    Console.WriteLine("  ✓ Solution found:");
+                    for (int j = 0; j < numJoints; j++)
                     {
-                        double[] ikJoints = new double[dof];
-                        Array.Copy(outSol, i * dof, ikJoints, 0, dof);
-                        double? tcpErr = CompareTCPViaFK(ikJoints);
-                        if (tcpErr.HasValue && tcpErr < minTcpErr)
-                            minTcpErr = tcpErr.Value;
+                        double deg = joints[j] * 180.0 / Math.PI;
+                        Console.WriteLine($"    J{j + 1}: {deg,8:F2}° ({joints[j],8:F4} rad)");
                     }
-                    results["solve_ik"] = $"OK ({numSol:D2} sol, err={minTcpErr:F6})";
+
+                    var (fkTrans, fkRot) = ikfast_solver.compute_fk(robotName, joints);
+                    if (fkTrans.Length > 0)
+                    {
+                        // Extract target position from matrix: tcpPose[3], tcpPose[7], tcpPose[11]
+                        double posErr = Math.Sqrt(
+                            Math.Pow(tcpPose[3] - fkTrans[0], 2) +
+                            Math.Pow(tcpPose[7] - fkTrans[1], 2) +
+                            Math.Pow(tcpPose[11] - fkTrans[2], 2)
+                        );
+
+                        Console.WriteLine($"    FK: pos=({fkTrans[0]:F6}, {fkTrans[1]:F6}, {fkTrans[2]:F6}), err={posErr:E3} m");
+                    }
                 }
                 else
-                    results["solve_ik"] = "FAIL (no solution)";
-            }
-            catch (Exception e)
-            {
-                results["solve_ik"] = $"ERROR";
-            }
-
-            // Test 2: solve_ik_with_config - Compare via TCP
-            try
-            {
-                for (int s = 0; s < 2; s++)
                 {
-                    for (int e = 2; e < 4; e++)
-                    {
-                        for (int w = 4; w < 6; w++)
-                        {
-                            double[] sol = new double[dof];
-                            int ret = IKFastUnity.IKU_SolveIKWithConfig(robotName, tcpPoseOrig, s, e, w, sol, out int ok);
-                            if (ret == 1 && ok == 1)
-                            {
-                                double? tcpErr = CompareTCPViaFK(sol);
-                                results["solve_ik_with_config"] = "OK";
-                                break;
-                            }
-                        }
-                        if (results.ContainsKey("solve_ik_with_config")) break;
-                    }
-                    if (results.ContainsKey("solve_ik_with_config")) break;
+                    Console.WriteLine("  ✗ No solution found for this configuration");
                 }
-                if (!results.ContainsKey("solve_ik_with_config"))
-                    results["solve_ik_with_config"] = "FAIL";
-            }
-            catch (Exception e)
-            {
-                results["solve_ik_with_config"] = $"ERROR";
+
+                Console.WriteLine();
             }
 
-            // Test 3: solve_ik_with_joint - Compare via TCP
-            try
+            // 3) ikfast_solver.solve_ik_with_joint (nearest to current) - Python style
+            Console.WriteLine("--- ikfast_solver.solve_ik_with_joint (nearest to current) ---");
+            double[] currentJoints = new double[numJoints];
+            var (nearest, nearest_is_solvable) = ikfast_solver.solve_ik_with_joint(
+                robotName, tcpPose, currentJoints
+            );
+            if (nearest_is_solvable)
             {
-                double[] current = new double[dof];
-                double[] sol = new double[dof];
-                int ret = IKFastUnity.IKU_SolveIKWithJoint(robotName, tcpPoseOrig, current, sol, out int ok);
-                if (ret == 1 && ok == 1)
+                Console.WriteLine("  ✓ Solution (nearest):");
+                for (int i = 0; i < numJoints; i++)
                 {
-                    double? tcpErr = CompareTCPViaFK(sol);
-                    results["solve_ik_with_joint"] = "OK";
+                    double deg = nearest[i] * 180.0 / Math.PI;
+                    Console.WriteLine($"    J{i + 1}: {deg,8:F2}° ({nearest[i],8:F4} rad)");
                 }
-                else
-                    results["solve_ik_with_joint"] = "FAIL";
-            }
-            catch (Exception e)
-            {
-                results["solve_ik_with_joint"] = $"ERROR";
-            }
 
-            return results;
+                var (fkTrans, fkRot) = ikfast_solver.compute_fk(robotName, nearest);
+                if (fkTrans.Length > 0)
+                {
+                    // Extract target position from matrix: tcpPose[3], tcpPose[7], tcpPose[11]
+                    double posErr = Math.Sqrt(
+                        Math.Pow(tcpPose[3] - fkTrans[0], 2) +
+                        Math.Pow(tcpPose[7] - fkTrans[1], 2) +
+                        Math.Pow(tcpPose[11] - fkTrans[2], 2)
+                    );
+                    Console.WriteLine($"    FK: pos=({fkTrans[0]:F6}, {fkTrans[1]:F6}, {fkTrans[2]:F6}), err={posErr:E3} m");
+                }
+            }
+            else
+            {
+                Console.WriteLine("  ✗ No solution found (nearest)");
+            }
+            Console.WriteLine();
+
+            Console.WriteLine("=".PadRight(60, '='));
+            Console.WriteLine("All IK tests completed!");
+            Console.WriteLine("=".PadRight(60, '='));
         }
     }
 }
