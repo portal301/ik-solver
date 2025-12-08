@@ -238,8 +238,8 @@ namespace TestIKFast
             try
             {
                 string exeDir = AppContext.BaseDirectory;
-                string testsDir = Path.GetFullPath(Path.Combine(exeDir, "..", "..", "..", "..")); // -> tests
-                string ikSolverDir = Path.GetFullPath(Path.Combine(testsDir, "..")); // -> ik-solver
+                string testsDir = Path.GetFullPath(Path.Combine(exeDir, "..", "..", "..", ".."));
+                string ikSolverDir = Path.GetFullPath(Path.Combine(testsDir, ".."));
                 string robotsDir = Path.Combine(ikSolverDir, "src", "robots");
                 string libDir = Path.Combine(ikSolverDir, "lib");
                 string vcpkgRoot = Environment.GetEnvironmentVariable("VCPKG_ROOT") ?? @"C:\dev\vcpkg";
@@ -512,9 +512,9 @@ namespace TestIKFast
             {
                 for (int s = 0; s < 2; s++)
                 {
-                    for (int e = 0; e < 2; e++)
+                    for (int e = 2; e < 4; e++)
                     {
-                        for (int w = 0; w < 2; w++)
+                        for (int w = 4; w < 6; w++)
                         {
                             double[] sol = new double[dof];
                             int ret = IKFastUnity.IKU_SolveIKWithConfig(robotName, tcpPoseOrig, s, e, w, sol, out int ok);

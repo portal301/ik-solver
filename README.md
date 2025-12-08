@@ -1195,20 +1195,20 @@ KJ125와 MPX3500 시리즈 등 일반적이지 않은 관절구조를 지닌 로
    # Python 모듈 빌드
    python setup.py build_ext --inplace --force
 
-   # Conda 환경용 복사
-   Copy-Item ikfast_solver.cp310-win_amd64.pyd bin\ikfast_solver.cp310-win_amd64.conda.pyd -Force
-
    # 테스트
-   python .\tests\test_python.py
+   python .\tests\unified_test.py
    ```
 
 **검증**:
-정상 작동하면 다음과 같은 메시지가 나타나고, IK 계산이 완료됩니다:
+정상 작동하면 다음과 같은 메시지가 나타나고, 모든 로봇의 IK 계산이 완료됩니다:
 ```
-Preloaded local LAPACK: C:\...\ik-solver\src\robots\liblapack.dll
-[DEBUG] LAPACK DLL loaded: C:\...\ik-solver\src\robots\liblapack.dll
-[DEBUG] _ComputeIk returned: 1
-Found X solution(s)
+Testing 13 robot(s):
+--------------------------------------------------------------------------------
+GP4       | solve_ik =OK (08 sol, err=0.000000)  ...
+...
+KJ125     | solve_ik =OK (08 sol, err=0.000000)  ...
+--------------------------------------------------------------------------------
+Result: 13/13 robots passed all tests
 ```
 
 **참고**: OpenBLAS 대신 reference LAPACK을 사용하는 이유는 OpenBLAS의 `dgeev_` 구현이 특정 입력에서 불안정할 수 있기 때문입니다. Reference LAPACK은 느리지만 매우 안정적입니다.
