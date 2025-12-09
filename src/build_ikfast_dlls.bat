@@ -78,11 +78,17 @@ rem SRC_DIR 하위 모든 *_ikfast.cpp에 대해 DLL 빌드 (제조사/모델별
 for /R "%SRC_DIR%" %%F in (*_ikfast.cpp) do (
     echo Building %%F ...
     cl %CL_OPTS% "%%F" /Fo:"%%~dpnF.obj" /Fe:"%%~dpnF.dll" /link %LINK_OPTS%
-    
-    rem 중간 산물 삭제 (exp, lib, obj)
+
+    rem 중간 산물 삭제 (exp, lib, obj, cpp)
     if exist "%%~dpnF.exp" del "%%~dpnF.exp"
     if exist "%%~dpnF.lib" del "%%~dpnF.lib"
     if exist "%%~dpnF.obj" del "%%~dpnF.obj"
+    if exist "%%F" (
+        echo   Cleaning up source: %%~nxF
+        del "%%F"
+    )
 )
 
-echo Done.
+echo.
+echo Done. Only DLL files remain in robots folder.
+echo.

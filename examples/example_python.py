@@ -2,30 +2,82 @@
 IKFast Solver Python 사용 예제
 
 이 예제는 ikfast_solver 모듈을 사용하여 로봇의 IK/FK를 계산하는 방법을 보여줍니다.
+
+요구사항:
+  - Python 3.10, 3.11, 또는 3.12 (권장: 3.12)
+
+배포 구조:
+  example_python.py (이 파일)
+  ikfast_solver.pyd (Python 버전에 맞는 .pyd 파일)
+  robots/
+    ├── kawasaki/
+    ├── yaskawa/
+    └── (모든 의존성 DLL: libgfortran-5.dll, liblapack.dll 등)
 """
 
 import os
 import sys
 import numpy as np
+from scipy.spatial.transform import Rotation
 
-# 프로젝트 루트를 sys.path에 추가 (예제 파일이 examples/ 디렉토리에 있음)
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
+# ============================================================================
+# 경로 설정 (프로젝트 구조와 배포 구조 모두 대응)
+# ============================================================================
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
 
-# 1. DLL 검색 경로 설정 (numpy를 먼저 import)
-vcpkg_bin = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "installed", "x64-windows", "bin")
-robots_dir = os.path.join(project_root, "src", "robots")
+# michelo_library 로드 시도 (있으면 우선 사용)
+try:
+    from michelo_library.robot.kinematics.enums import PoseConfigEnum, RobotModelEnum
+    HAS_MICHELO = True
+except ImportError:
+    HAS_MICHELO = False
+    # 상위 디렉토리에서 찾기
+    temp_dir = script_dir
+    for _ in range(4):
+        temp_dir = os.path.dirname(temp_dir)
+        if os.path.isdir(os.path.join(temp_dir, "michelo_library")):
+            sys.path.insert(0, temp_dir)
+            try:
+                from michelo_library.robot.kinematics.enums import PoseConfigEnum, RobotModelEnum
+                HAS_MICHELO = True
+                break
+            except ImportError:
+                continue
 
-if hasattr(os, 'add_dll_directory'):
+# robots 경로 결정 (배포/프로젝트 구조 모두 대응)
+robots_candidates = [
+    os.path.join(script_dir, "robots"),           # 배포: 같은 디렉토리
+    os.path.join(os.path.dirname(script_dir), "robots"),  # 프로젝트: 상위
+]
+robots_dir = next((p for p in robots_candidates if os.path.isdir(p)), robots_candidates[0])
+
+# DLL 경로 설정
+dll_dirs = [script_dir, robots_dir]
+
+# VCPKG DLL (선택사항)
+vcpkg_root = os.environ.get("VCPKG_ROOT")
+if vcpkg_root:
+    vcpkg_bin = os.path.join(vcpkg_root, "installed", "x64-windows", "bin")
     if os.path.isdir(vcpkg_bin):
-        os.add_dll_directory(vcpkg_bin)
-    os.add_dll_directory(robots_dir)
+        dll_dirs.insert(0, vcpkg_bin)
 
-# 2. ikfast_solver 모듈 import 및 초기화
+# DLL 경로 등록
+if hasattr(os, 'add_dll_directory'):
+    for dll_dir in dll_dirs:
+        if os.path.isdir(dll_dir):
+            os.add_dll_directory(dll_dir)
+
+os.environ["PATH"] = ";".join(dll_dirs) + ";" + os.environ.get("PATH", "")
+
+# ikfast_solver 로드
 import ikfast_solver
-
 ikfast_solver.load_ik_plugins(robots_dir)
-print("[OK] IK plugins loaded successfully\n")
+print(f"[OK] IK plugins loaded from: {robots_dir}")
+if HAS_MICHELO:
+    print("[OK] michelo_library available\n")
+else:
+    print()
 
 # 3. 로봇 선택
 robot_name = "gp25"
@@ -77,10 +129,10 @@ print("IK 계산 - 특정 Configuration")
 print("=" * 60)
 
 configs = [
-    (0, 3, 4, "Right-Down-NoFlip"),
-    (1, 3, 4, "Left-Down-NoFlip"),
-    (0, 2, 4, "Right-Up-NoFlip"),
-    (1, 2, 5, "Left-Up-Flip"),
+    (0, 1, 0, "Right-Down-NoFlip"),
+    (1, 1, 0, "Left-Down-NoFlip"),
+    (0, 0, 0, "Right-Up-NoFlip"),
+    (1, 0, 1, "Left-Up-Flip"),
 ]
 
 for shoulder, elbow, wrist, name in configs:

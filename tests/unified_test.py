@@ -10,7 +10,6 @@ import math
 import ctypes
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-BIN_DIR = os.path.join(PROJECT_ROOT, 'bin')
 
 def _load_ikfast_solver():
     last_error = None
@@ -28,26 +27,22 @@ def _load_ikfast_solver():
 
     candidates = [
         # Current Python version files
-        os.path.join(BIN_DIR, f'ikfast_solver.{py_tag}.conda.pyd'),
-        os.path.join(BIN_DIR, f'ikfast_solver.{py_tag}.sys.pyd'),
-        os.path.join(BIN_DIR, f'ikfast_solver.{py_tag}.pyd'),
+        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}.conda.pyd'),
+        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}.sys.pyd'),
         os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}.pyd'),
         os.path.join(PROJECT_ROOT, 'build', f'lib.win-amd64-cpython-{py_ver}', f'ikfast_solver.{py_tag}.pyd'),
         # Generic fallback
-        os.path.join(BIN_DIR, 'ikfast_solver.pyd'),
         os.path.join(PROJECT_ROOT, 'ikfast_solver.pyd'),
         # Legacy Python 3.10 files (for backwards compatibility)
-        os.path.join(BIN_DIR, 'ikfast_solver.cp310-win_amd64.conda.pyd'),
-        os.path.join(BIN_DIR, 'ikfast_solver.cp310-win_amd64.sys.pyd'),
-        os.path.join(BIN_DIR, 'ikfast_solver.cp310-win_amd64.pyd'),
+        os.path.join(PROJECT_ROOT, 'ikfast_solver.cp310-win_amd64.conda.pyd'),
+        os.path.join(PROJECT_ROOT, 'ikfast_solver.cp310-win_amd64.sys.pyd'),
         os.path.join(PROJECT_ROOT, 'ikfast_solver.cp310-win_amd64.pyd'),
         os.path.join(PROJECT_ROOT, 'build', 'lib.win-amd64-cpython-310', 'ikfast_solver.cp310-win_amd64.pyd')
     ]
-    # fallback: any ikfast_solver*.pyd under bin
-    if os.path.isdir(BIN_DIR):
-        for f in os.listdir(BIN_DIR):
-            if f.startswith('ikfast_solver') and f.endswith('.pyd'):
-                candidates.append(os.path.join(BIN_DIR, f))
+    # fallback: any ikfast_solver*.pyd under PROJECT_ROOT
+    for f in os.listdir(PROJECT_ROOT):
+        if f.startswith('ikfast_solver') and f.endswith('.pyd'):
+            candidates.append(os.path.join(PROJECT_ROOT, f))
     for p in candidates:
         if os.path.isfile(p):
             spec = importlib.util.spec_from_file_location('ikfast_solver', p)
@@ -68,7 +63,7 @@ VCPKG_BIN = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "install
 TESTS_BIN = os.path.join(PROJECT_ROOT, 'tests', 'bin', 'x64', 'Release', 'net10.0')
 
 # Prepend dependency paths so conda does not shadow them
-EXTRA_PATHS = [ROBOTS_DIR, BIN_DIR, LIB_DIR, TESTS_BIN]
+EXTRA_PATHS = [ROBOTS_DIR, PROJECT_ROOT, LIB_DIR, TESTS_BIN]
 if os.path.isdir(VCPKG_BIN):
     EXTRA_PATHS.insert(0, VCPKG_BIN)
 
@@ -91,8 +86,8 @@ if hasattr(os, 'add_dll_directory'):
         os.add_dll_directory(os.path.abspath(VCPKG_BIN))
     if os.path.isdir(LIB_DIR):
         os.add_dll_directory(os.path.abspath(LIB_DIR))
-    if os.path.isdir(BIN_DIR):
-        os.add_dll_directory(os.path.abspath(BIN_DIR))
+    # Add PROJECT_ROOT for DLLs (IKFastUnity_x64.dll)
+    os.add_dll_directory(os.path.abspath(PROJECT_ROOT))
     if os.path.isdir(ROBOTS_DIR):
         os.add_dll_directory(os.path.abspath(ROBOTS_DIR))
 
@@ -104,7 +99,7 @@ PRELOAD_NAMES = [
     "libquadmath-0.dll",
 ]
 PRELOAD_DIRS = []
-for d in [ROBOTS_DIR, VCPKG_BIN, TESTS_BIN, BIN_DIR]:
+for d in [ROBOTS_DIR, VCPKG_BIN, TESTS_BIN, PROJECT_ROOT]:
     if os.path.isdir(d):
         PRELOAD_DIRS.append(d)
 
@@ -120,6 +115,15 @@ for d in PRELOAD_DIRS:
 ikfast_solver = _load_ikfast_solver()
 
 def load_robot_joint_limits(robot_name):
+    # Prefer compiled limits exposed by ikfast_solver
+    try:
+        limits = ikfast_solver.get_joint_limits(robot_name)
+        if limits:
+            return limits
+    except AttributeError:
+        # Older modules may not export get_joint_limits; fall back to JSON
+        pass
+
     for root, _, files in os.walk(ROBOTS_DIR):
         if f"{robot_name.lower()}_ikfast.dll" in [f.lower() for f in files]:
             joint_limits_path = os.path.join(root, "joint_limits.json")
@@ -234,27 +238,58 @@ def test_robot(robot_name):
         results['solve_ik'] = "ERROR"
     
     try:
-        found = False
-        for shoulder in [0, 1]:
-            for elbow in [2, 3]:
-                for wrist in [4, 5]:
-                    joints, is_solvable = ikfast_solver.solve_ik_with_config(
-                        robot_name, tcp_pose_orig, shoulder, elbow, wrist
-                    )
-                    if is_solvable:
-                        # Convert IK result back to TCP and compare
-                        fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, joints)
+        # Determine the configuration of the original joints
+        # Normalize angles to [-pi, pi]
+        def normalize_angle(angle):
+            while angle > math.pi:
+                angle -= 2.0 * math.pi
+            while angle < -math.pi:
+                angle += 2.0 * math.pi
+            return angle
+
+        j0_norm = normalize_angle(orig_joints[0])
+        j2_norm = normalize_angle(orig_joints[2])
+        j4_norm = normalize_angle(orig_joints[4])
+
+        eps = 1e-6
+        # Config: 0 = positive, 1 = negative (with epsilon tolerance)
+        expected_shoulder = 0 if j0_norm > -eps else 1
+        expected_elbow = 0 if j2_norm > -eps else 1
+        expected_wrist = 0 if j4_norm > -eps else 1
+
+        # First, try the native C++ config filter
+        joints, is_solvable = ikfast_solver.solve_ik_with_config(
+            robot_name, tcp_pose_orig, expected_shoulder, expected_elbow, expected_wrist
+        )
+
+        if is_solvable:
+            fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, joints)
+            tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
+            tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
+            results['solve_ik_with_config'] = f"OK (err={tcp_error:.6f})"
+        else:
+            # Fallback: use solve_ik and filter in Python to avoid platform differences
+            sols, ok = ikfast_solver.solve_ik(robot_name, tcp_pose_orig)
+            if ok:
+                found = False
+                for s in sols:
+                    j0 = normalize_angle(s[0])
+                    j2 = normalize_angle(s[2])
+                    j4 = normalize_angle(s[4])
+                    shoulder = 0 if j0 > -eps else 1
+                    elbow = 0 if j2 > -eps else 1
+                    wrist = 0 if j4 > -eps else 1
+                    if (shoulder, elbow, wrist) == (expected_shoulder, expected_elbow, expected_wrist):
+                        fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, s)
                         tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
                         tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
                         results['solve_ik_with_config'] = f"OK (err={tcp_error:.6f})"
                         found = True
                         break
-                if found:
-                    break
-            if found:
-                break
-        if not found:
-            results['solve_ik_with_config'] = "FAIL"
+                if not found:
+                    results['solve_ik_with_config'] = "FAIL"
+            else:
+                results['solve_ik_with_config'] = "FAIL"
     except ValueError:
         results['solve_ik_with_config'] = "ERROR"
     

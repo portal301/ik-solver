@@ -36,23 +36,33 @@ IKFast 기반 IK Solver 통합 라이브러리입니다. 플러그인 아키텍�
 
 ```
 ik-solver/
-├── ikfast_solver.cp312-win_amd64.pyd  # Python 3.12 모듈 (빌드 시 자동 생성)
-├── bin/
-│   └── IKFastUnity_x64.dll            # C#/Unity DLL (C# 사용 시)
+├── ikfast_solver.pyd                      # Python 모듈 (기본: Python 3.12)
+├── ikfast_solver.cp310-win_amd64.pyd      # Python 3.10 모듈
+├── ikfast_solver.cp311-win_amd64.pyd      # Python 3.11 모듈
+├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈
+├── IKFastUnity_x64.dll                    # C#/Unity DLL (C# 사용 시)
 └── src/
-    └── robots/                        # 로봇 플러그인 DLL들 (13개) + LAPACK/BLAS
+    └── robots/                            # 로봇 플러그인 DLL들 (13개) + LAPACK/BLAS
         ├── kawasaki/
         │   ├── KJ125/kj125_ikfast.dll
         │   └── RS007L/rs007l_ikfast.dll
         ├── yaskawa/
         │   ├── GP4/gp4_ikfast.dll
         │   ├── GP7/gp7_ikfast.dll
-            ...
-        ├── liblapack.dll              # Reference LAPACK (vcpkg)
-        ├── openblas.dll               # OpenBLAS (LAPACK 의존성)
-        ├── libgfortran-5.dll          # Fortran runtime (LAPACK 의존성)
-        ├── libgcc_s_seh-1.dll         # GCC runtime (LAPACK 의존성)
-        └── libquadmath-0.dll          # Quad-precision math (LAPACK 의존성)
+        │   ├── GP8/gp8_ikfast.dll
+        │   ├── GP10/gp10_ikfast.dll
+        │   ├── GP12/gp12_ikfast.dll
+        │   ├── GP25/gp25_ikfast.dll
+        │   ├── GP25-12/gp25_12_ikfast.dll
+        │   ├── GP50/gp50_ikfast.dll
+        │   ├── GP8L/gp8l_ikfast.dll
+        │   ├── MPX3500-C00X/mpx3500_c00x_ikfast.dll
+        │   └── MPX3500-C10X/mpx3500_c10x_ikfast.dll
+        ├── liblapack.dll                  # Reference LAPACK (vcpkg)
+        ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
+        ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
+        ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
+        └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
 ```
 
 ### 1. C# / Unity 사용 시
@@ -61,16 +71,21 @@ ik-solver/
 
 ```
 YourProject/
-├── IKFastUnity_x64.dll          # 이 저장소의 bin/IKFastUnity_x64.dll
+├── IKFastUnity_x64.dll          # 이 저장소의 IKFastUnity_x64.dll
 └── robots/                       # 이 저장소의 src/robots/ 전체 복사
     ├── kawasaki/                 # Kawasaki 로봇 DLL (2개)
+    │   ├── KJ125/kj125_ikfast.dll
+    │   └── RS007L/rs007l_ikfast.dll
     ├── yaskawa/                  # Yaskawa 로봇 DLL (11개)
+    │   ├── GP4/gp4_ikfast.dll
+    │   ├── GP7/gp7_ikfast.dll
+    │   ├── ... (총 11개)
     ├── liblapack.dll             # LAPACK 라이브러리
     ├── openblas.dll              # OpenBLAS (LAPACK 의존성)
     └── libgfortran-5.dll, ...    # Fortran 런타임 DLL들
 ```
 
-> **Unity 프로젝트**: `IKFastUnity_x64.dll`과 `robots/` 폴더의 LAPACK/BLAS DLL들을 `Assets/Plugins/x86_64/`에 복사하고, 로봇 DLL들은 빌드 실행 경로에 배치하세요.
+> **Unity 프로젝트**: `IKFastUnity_x64.dll`과 `src/robots/` 폴더의 모든 DLL을 `Assets/Plugins/x86_64/`에 복사하세요. Unity는 재귀적으로 플러그인을 검색하므로 제조사/모델명 디렉토리 구조 그대로 복사하면 됩니다.
 
 #### C# 프로젝트 설정
 
@@ -85,20 +100,27 @@ YourProject/
 
 ```
 YourProject/
-├── ikfast_solver.cp312-win_amd64.pyd  # 이 저장소의 ikfast_solver.cp312-win_amd64.pyd
-└── robots/                            # 이 저장소의 src/robots/ 전체 복사
-    ├── kawasaki/                      # Kawasaki 로봇 DLL (2개)
-    ├── yaskawa/                       # Yaskawa 로봇 DLL (11개)
-    ├── liblapack.dll                  # LAPACK 라이브러리
-    ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
-    └── libgfortran-5.dll, ...         # Fortran 런타임 DLL들
+├── ikfast_solver.pyd              # Python 버전에 맞는 .pyd 파일
+└── robots/                        # 이 저장소의 src/robots/ 전체 복사
+    ├── kawasaki/                  # Kawasaki 로봇 DLL (2개)
+    ├── yaskawa/                   # Yaskawa 로봇 DLL (11개)
+    ├── liblapack.dll              # LAPACK 라이브러리
+    ├── openblas.dll               # OpenBLAS (LAPACK 의존성)
+    └── libgfortran-5.dll, ...     # Fortran 런타임 DLL들
 ```
 
-> **참고**: Python은 `import ikfast_solver` 실행 시 자동으로 `ikfast_solver.cp312-win_amd64.pyd`를 찾아 로드합니다. 원하면 `ikfast_solver.pyd`로 이름을 변경해도 작동합니다.
+**Python 버전별 .pyd 파일 선택**:
+- **Python 3.12 (권장)**: `ikfast_solver.pyd` (기본 파일)
+- **Python 3.11**: `ikfast_solver.cp311-win_amd64.pyd` → 프로젝트로 복사 후 `ikfast_solver.pyd`로 이름 변경
+- **Python 3.10**: `ikfast_solver.cp310-win_amd64.pyd` → 프로젝트로 복사 후 `ikfast_solver.pyd`로 이름 변경
+
+> **참고**: Python은 `import ikfast_solver` 실행 시 자동으로 현재 환경의 Python 버전에 맞는 모듈을 찾아 로드합니다.
 
 #### Python 프로젝트 설정
 
-> **참고**: Python 3.12+ 필요. uv 또는 conda 환경 모두 지원됩니다. 빌드 스크립트가 자동으로 Python 경로와 버전을 감지합니다.
+> **지원 버전**: Python 3.10, 3.11, 3.12 (권장: 3.12)
+>
+> **빌드 환경**: uv 또는 conda 환경 모두 지원됩니다. 빌드 스크립트가 자동으로 Python 경로와 버전을 감지합니다.
 
 **Python 바인딩 모듈 사용**
 
@@ -183,8 +205,8 @@ else:
 joints, is_solvable = ikfast_solver.solve_ik_with_config(
     robot_name, tcp_pose,
     0,  # RIGHT shoulder
-    3,  # DOWN elbow
-    4   # N_FLIP wrist
+    1,  # DOWN elbow
+    0   # N_FLIP wrist
 )
 
 if is_solvable:
@@ -471,15 +493,15 @@ else:
 
 **Pose.Config (Configuration)**:
 - **Shoulder**: `RIGHT` (0) / `LEFT` (1) - J1 관절 각도의 부호
-- **Elbow**: `UP` (2) / `DOWN` (3) - J3 관절 각도의 부호
-- **Wrist**: `N_FLIP` (4) / `FLIP` (5) - J5 관절 각도의 부호
+- **Elbow**: `UP` (0) / `DOWN` (1) - J3 관절 각도의 부호
+- **Wrist**: `N_FLIP` (0) / `FLIP` (1) - J5 관절 각도의 부호
 
 **C# 선언**:
 ```csharp
 public enum PoseConfig {
     RIGHT = 0, LEFT = 1,
-    UP = 2, DOWN = 3,
-    N_FLIP = 4, FLIP = 5
+    UP = 0, DOWN = 1,
+    N_FLIP = 0, FLIP = 1
 }
 
 public static (double[] joints, bool is_solvable) solve_ik_with_config(
@@ -497,8 +519,8 @@ ikfast_solver.solve_ik_with_config(
     robot_name: str,
     tcp_pose: np.ndarray,         # [12]: R11,R12,R13,Tx,R21,R22,R23,Ty,R31,R32,R33,Tz
     shoulder_config: int,         # 0=RIGHT, 1=LEFT
-    elbow_config: int,            # 2=UP, 3=DOWN
-    wrist_config: int             # 4=N_FLIP, 5=FLIP
+    elbow_config: int,            # 0=UP, 1=DOWN
+    wrist_config: int             # 0=N_FLIP, 1=FLIP
 ) -> Tuple[np.ndarray, bool]      # (joints, is_solvable)
 ```
 
@@ -509,8 +531,8 @@ ikfast_solver.solve_ik_with_config(
   - 형식: `[R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz]`
 
 - `shoulder_config`: 어깨 구성 (0=RIGHT, 1=LEFT)
-- `elbow_config`: 팔꿈치 구성 (2=UP, 3=DOWN)
-- `wrist_config`: 손목 구성 (4=N_FLIP, 5=FLIP)
+- `elbow_config`: 팔꿈치 구성 (0=UP, 1=DOWN)
+- `wrist_config`: 손목 구성 (0=N_FLIP, 1=FLIP)
 
 **반환값**: `((double[][]) solutions, (bool) is_solvable)` 튜플
 - `solutions`: 솔루션 배열 (각 솔루션은 관절 각도 배열)
@@ -545,8 +567,8 @@ tcp_pose = np.array([1, 0, 0, 0.5, 0, 1, 0, 0.0, 0, 0, 1, 0.3], dtype=np.float64
 joints, is_solvable = ikfast_solver.solve_ik_with_config(
     "gp25", tcp_pose,
     0,  # RIGHT
-    3,  # DOWN
-    4   # N_FLIP
+    1,  # DOWN
+    0   # N_FLIP
 )
 
 if is_solvable:
@@ -712,6 +734,36 @@ if is_solvable and len(solutions) > 0:
 
 ---
 
+## 빌드 가이드
+
+### 멀티 버전 Python 모듈 빌드
+
+Python 3.10, 3.11, 3.12용 모듈을 한 번에 빌드하려면:
+
+**Windows Batch:**
+```powershell
+cd ik-solver
+build_all_python_versions.bat
+```
+
+**PowerShell:**
+```powershell
+cd ik-solver
+.\build_all_python_versions.ps1
+```
+
+빌드 후 다음 파일이 생성됩니다:
+- `ikfast_solver.cp310-win_amd64.pyd` (Python 3.10)
+- `ikfast_solver.cp311-win_amd64.pyd` (Python 3.11)
+- `ikfast_solver.cp312-win_amd64.pyd` (Python 3.12)
+- `ikfast_solver.pyd` (Python 3.12 기본 복사본)
+
+> **요구사항**:
+> - [uv](https://github.com/astral-sh/uv) 설치 필요
+> - Visual Studio Build Tools 2022 (C++ 워크로드)
+
+---
+
 ## 테스트 실행
 
 제공된 테스트 프로그램으로 설치 및 API 동작을 확인할 수 있습니다.
@@ -763,9 +815,13 @@ python tests\test_python.py
 ```
 ik-solver/
 ├── README.md                              # 이 문서
-├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈 (빌드 시 자동 생성)
-├── bin/
-│   └── IKFastUnity_x64.dll                # C#/Unity 통합 DLL
+├── ikfast_solver.pyd                      # Python 모듈 (기본: Python 3.12)
+├── ikfast_solver.cp310-win_amd64.pyd      # Python 3.10 모듈
+├── ikfast_solver.cp311-win_amd64.pyd      # Python 3.11 모듈
+├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈
+├── IKFastUnity_x64.dll                    # C#/Unity 통합 DLL
+├── build_all_python_versions.bat          # 멀티 버전 빌드 (Windows Batch)
+├── build_all_python_versions.ps1          # 멀티 버전 빌드 (PowerShell)
 ├── src/
 │   ├── ikfast_core.hpp                    # 관절 제한 데이터
 │   ├── ikfast_core.cpp                    # 플러그인 로더

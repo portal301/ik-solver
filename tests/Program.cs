@@ -24,6 +24,13 @@ namespace TestIKFast
         public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPStr)] string robot_name);
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int IKU_GetJointLimits(
+            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [Out] double[] out_lower,
+            [Out] double[] out_upper,
+            int max_joints);
+
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int IKU_SolveIK(
             [MarshalAs(UnmanagedType.LPStr)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
@@ -64,10 +71,10 @@ namespace TestIKFast
     {
         RIGHT = 0,
         LEFT = 1,
-        UP = 2,
-        DOWN = 3,
-        N_FLIP = 4,
-        FLIP = 5
+        UP = 0,
+        DOWN = 1,
+        N_FLIP = 0,
+        FLIP = 1
     }
 
     // Removed MatrixHelper: examples use direct transformation array for simplicity
@@ -119,8 +126,8 @@ namespace TestIKFast
         /// <param name="robot_name">Robot name (case insensitive)</param>
         /// <param name="tcp_pose">TCP 4x4 transformation matrix (12 elements)</param>
         /// <param name="shoulder_config">Shoulder configuration (0=RIGHT, 1=LEFT)</param>
-        /// <param name="elbow_config">Elbow configuration (2=UP, 3=DOWN)</param>
-        /// <param name="wrist_config">Wrist configuration (4=N_FLIP, 5=FLIP)</param>
+        /// <param name="elbow_config">Elbow configuration (0=UP, 1=DOWN)</param>
+        /// <param name="wrist_config">Wrist configuration (0=N_FLIP, 1=FLIP)</param>
         /// <returns>(joints, is_solvable)</returns>
         public static (double[] joints, bool is_solvable) solve_ik_with_config(
             string robot_name,
@@ -332,6 +339,29 @@ namespace TestIKFast
 
         static Dictionary<string, double[]> LoadRobotJointLimits(string robotName, string robotsDir)
         {
+            int dof = IKFastUnity.IKU_GetNumJoints(robotName);
+            if (dof > 0)
+            {
+                double[] lowers = new double[dof];
+                double[] uppers = new double[dof];
+                int count = IKFastUnity.IKU_GetJointLimits(robotName, lowers, uppers, dof);
+
+                if (count == dof)
+                {
+                    // Use compiled limits to sample random joints within bounds
+                    double[] sampled = new double[dof];
+                    Random rand = new Random();
+                    for (int i = 0; i < dof; i++)
+                    {
+                        double lo = lowers[i];
+                        double hi = uppers[i];
+                        if (hi < lo) (lo, hi) = (hi, lo);
+                        sampled[i] = lo + ((hi - lo) * rand.NextDouble());
+                    }
+                    return new Dictionary<string, double[]> { { "joints", sampled } };
+                }
+            }
+
             // Find joint_limits.json in the robot's directory
             // Path format: robots_dir/<manufacturer>/<robot_name>/joint_limits.json
             // or: robots_dir/<robot_name>/joint_limits.json
@@ -358,11 +388,11 @@ namespace TestIKFast
                         
                         if (matches.Count > 0)
                         {
-                            int dof = matches.Count;
-                            double[] result = new double[dof];
+                            int jsonDof = matches.Count;
+                            double[] result = new double[jsonDof];
                             Random rand = new Random();
                             
-                            for (int i = 0; i < dof; i++)
+                            for (int i = 0; i < jsonDof; i++)
                             {
                                 try
                                 {
@@ -480,9 +510,9 @@ namespace TestIKFast
             {
                 for (int s = 0; s < 2; s++)
                 {
-                    for (int e = 2; e < 4; e++)
+                    for (int e = 0; e < 2; e++)
                     {
-                        for (int w = 4; w < 6; w++)
+                        for (int w = 0; w < 2; w++)
                         {
                             double[] sol = new double[dof];
                             int ret = IKFastUnity.IKU_SolveIKWithConfig(robotName, tcpPoseOrig, s, e, w, sol, out int ok);
