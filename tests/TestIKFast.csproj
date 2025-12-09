@@ -10,8 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- x64 환경 배포: 고정된 DLL 이름 사용 -->
-    <None Include="..\bin\IKFastUnity_x64.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- x64 환경 배포: DLL은 루트 폴더에 위치 -->
+    <None Include="..\IKFastUnity_x64.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

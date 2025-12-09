@@ -24,12 +24,11 @@ __pycache__/
 
 # Exception: Keep distributed binaries
 !ikfast_solver.cp310-win_amd64.pyd
-!bin/IKFastUnity_x64.dll
+!ikfast_solver.cp311-win_amd64.pyd
+!ikfast_solver.cp312-win_amd64.pyd
+!IKFastUnity_x64.dll
 !src/robots/*.dll
 !lib/*.dll
-
-# Exclude other .pyd files in bin/
-bin/*.pyd
 cmake_install.cmake
 install_manifest.txt
 CTestTestfile.cmake
@@ -52,11 +51,6 @@ cleanup_build.ps1
 
 # Test files (keep only tests/ directory versions)
 /test_python.py
-/ikfast_solver.pyd
-
-# Keep only the versioned .pyd
-ikfast_solver.pyd
-!ikfast_solver.cp310-win_amd64.pyd
 
 # Source code (exclude from distribution - keep only binaries)
 src/*.cpp
@@ -84,3 +78,6 @@ src/**/build/
 *.out
 check_module.py
 *.bat
+*.txt
+tests/debug_config.py
+tests/debug_specific.py
