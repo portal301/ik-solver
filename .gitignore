@@ -50,7 +50,9 @@ __pycache__/
 
 # Exception: Keep distributed binaries
 !ikfast_solver.cp310-win_amd64.pyd
-!bin/IKFastUnity_x64.dll
+!ikfast_solver.cp311-win_amd64.pyd
+!ikfast_solver.cp312-win_amd64.pyd
+!IKFastUnity_x64.dll
 !src/robots/*.dll
 !lib/*.dll
 
