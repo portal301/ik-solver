@@ -2,6 +2,7 @@
 build/
 cmake-build-*/
 out/
+*.bat
 
 # C# build outputs
 tests/bin/
@@ -81,3 +82,8 @@ check_module.py
 *.txt
 tests/debug_config.py
 tests/debug_specific.py
+pyproject.toml
+uv.lock
+/node_modules
+package.json
+package-lock.json

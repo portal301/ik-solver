@@ -62,7 +62,8 @@ ik-solver/
         ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
         ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
         ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
-        └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
+        ├── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
+        └── libwinpthread-1.dll            # Windows pthread (LAPACK 의존성)
 ```
 
 ### 1. C# / Unity 사용 시
@@ -124,25 +125,24 @@ YourProject/
 
 **Python 바인딩 모듈 사용**
 
-1. **DLL 검색 경로 추가** (Windows Python 3.8+):
+1. **numpy 설치**: `pip install numpy` 또는 `uv add numpy`
+
+2. **DLL 검색 경로 추가** (Windows Python 3.8+):
    ```python
    import os
    import numpy as np  # numpy를 먼저 import
 
-   # vcpkg bin 디렉토리 추가 (Fortran 런타임 등 LAPACK 의존성)
-   vcpkg_bin = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "installed", "x64-windows", "bin")
+   robots_dir = os.path.abspath("robots")  # 또는 절대 경로
 
    if hasattr(os, 'add_dll_directory'):
-       if os.path.isdir(vcpkg_bin):
-           os.add_dll_directory(vcpkg_bin)
-       os.add_dll_directory("path/to/robots")
+       os.add_dll_directory(robots_dir)
 
    import ikfast_solver
    ```
 
-2. **초기화**: `ikfast_solver.load_ik_plugins(robots_dir)` (성공 시 반환값 없음, 실패 시 `RuntimeError` 발생)
+3. **초기화**: `ikfast_solver.load_ik_plugins(robots_dir)` (성공 시 반환값 없음, 실패 시 `RuntimeError` 발생)
 
-   > **중요**: KJ125, MPX3500 시리즈를 사용하려면 vcpkg bin 디렉토리를 반드시 추가해야 합니다. 이 디렉토리에는 LAPACK이 필요로 하는 Fortran 런타임 라이브러리들(`libgfortran-5.dll`, `libquadmath-0.dll` 등)이 있습니다. (문제 해결 단락 참조)
+   > **참고**: `robots/` 폴더에는 모든 로봇 플러그인 DLL과 LAPACK/BLAS 의존성이 포함되어 있어 별도의 설정이 필요하지 않습니다.
 
 ---
 
@@ -157,12 +157,9 @@ import os
 import numpy as np
 
 # 1. DLL 검색 경로 설정 (numpy를 먼저 import)
-vcpkg_bin = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "installed", "x64-windows", "bin")
 robots_dir = os.path.abspath("robots")
 
 if hasattr(os, 'add_dll_directory'):
-    if os.path.isdir(vcpkg_bin):
-        os.add_dll_directory(vcpkg_bin)
     os.add_dll_directory(robots_dir)
 
 # 2. ikfast_solver 모듈 import 및 초기화
@@ -783,11 +780,17 @@ dotnet run -c Release -p:Platform=x64
 
 ### Python 테스트
 
+**uv 사용 (권장)**:
 ```powershell
-python tests\test_python.py
+uv run --python 3.12 python tests\unified_test.py
 ```
 
-> **참고**: Python 3.12+ 필요. uv 또는 conda 환경 모두 지원됩니다.
+**일반 Python**:
+```powershell
+python tests\unified_test.py
+```
+
+> **참고**: Python 3.10+ 필요 (3.10, 3.11, 3.12 지원). uv 또는 conda 환경 모두 지원됩니다.
 
 **DLL 의존성 처리**:
 - 테스트 스크립트가 자동으로 `src/robots/` 디렉토리를 DLL 검색 경로에 추가합니다 (LAPACK 포함)
@@ -846,10 +849,11 @@ ik-solver/
 │       │   ├── MPX3500-C00X/mpx3500_c00x_ikfast.dll
 │       │   └── MPX3500-C10X/mpx3500_c10x_ikfast.dll
 │       ├── liblapack.dll                  # Reference LAPACK (vcpkg)
-│       ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
+│       ├── openblas.dll                   # OpenBLAS (vcpkg, LAPACK 의존성)
 │       ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
 │       ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
-│       └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
+│       ├── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
+│       └── libwinpthread-1.dll            # Windows pthread (LAPACK 의존성)
 ├── examples/
 │   └── example_python.py                  # Python 사용 예제
 └── tests/
@@ -903,81 +907,35 @@ ImportError: DLL load failed while importing ikfast_solver
 import os
 import numpy as np  # numpy를 먼저 import
 
+robots_dir = os.path.abspath("robots")
+
 # DLL 검색 경로 추가 (Python 3.8+ 필수)
 if hasattr(os, 'add_dll_directory'):
-    os.add_dll_directory("path/to/robots")
+    os.add_dll_directory(robots_dir)
 
 import ikfast_solver  # 이제 import 가능
 ```
 
-### 4. LAPACK 충돌 문제 (KJ125, MPX3500 시리즈)
-
-**증상**:
-- 관절 구조가 일반적이지 않은 특정 로봇만 문제 발생
-
-**원인**:
-KJ125와 MPX3500 시리즈 등 일반적이지 않은 관절구조를 지닌 로봇은 IKFast 내부에서 eigenvalue 계산을 위해 LAPACK의 `dgeev_` 함수를 호출합니다. Conda/Miniconda 환경에서는 conda의 LAPACK 라이브러리나 vcpkg의 OpenBLAS가 특정 케이스에서 무한 루프를 발생시킬 수 있습니다.
-
-**해결책**:
-
-**vcpkg Reference LAPACK 사용 (권장)**
-
-1. vcpkg에서 reference LAPACK 설치:
-   ```powershell
-   C:\dev\vcpkg\vcpkg.exe install lapack:x64-windows
-   ```
-
-2. Reference LAPACK 및 의존성 DLL들을 robots 디렉토리에 복사:
-   ```powershell
-   # LAPACK 및 BLAS 라이브러리
-   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\lapack.dll src\robots\liblapack.dll -Force
-   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\openblas.dll src\robots\openblas.dll -Force
-
-   # Fortran 런타임 의존성 (LAPACK이 필요로 함)
-   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\libgfortran-5.dll src\robots\ -Force
-   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\libgcc_s_seh-1.dll src\robots\ -Force
-   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\libquadmath-0.dll src\robots\ -Force
-   ```
-
-3. `src/robots/` 디렉토리 구조 확인:
-   ```
-   src/robots/
-   ├── liblapack.dll          # Reference LAPACK (vcpkg)
-   ├── openblas.dll           # OpenBLAS (vcpkg, LAPACK 의존성)
-   ├── libgfortran-5.dll      # Fortran runtime
-   ├── libgcc_s_seh-1.dll     # GCC runtime
-   ├── libquadmath-0.dll      # Quad-precision math
-   ├── gp25_ikfast.dll        # 로봇 플러그인 DLL들...
-   ├── kj125_ikfast.dll
-   └── mpx3500_c00x_ikfast.dll
-   ```
-
-4. 빌드 및 테스트:
-   ```powershell
-   # Python 모듈 빌드
-   python setup.py build_ext --inplace --force
-
-   # 테스트
-   python .\tests\unified_test.py
-   ```
-
-**검증**:
-정상 작동하면 다음과 같은 메시지가 나타나고, 모든 로봇의 IK 계산이 완료됩니다:
-```
-Testing 13 robot(s):
---------------------------------------------------------------------------------
-GP4       | solve_ik =OK (08 sol, err=0.000000)  ...
-...
-KJ125     | solve_ik =OK (08 sol, err=0.000000)  ...
---------------------------------------------------------------------------------
-Result: 13/13 robots passed all tests
-```
-
-**참고**: OpenBLAS 대신 reference LAPACK을 사용하는 이유는 OpenBLAS의 `dgeev_` 구현이 특정 입력에서 불안정할 수 있기 때문입니다. Reference LAPACK은 느리지만 매우 안정적입니다.
+**추가 확인 사항**:
+- `robots/` 디렉토리에 로봇 플러그인 DLL들이 있는지 확인
+- `robots/` 디렉토리에 LAPACK/BLAS DLL들이 있는지 확인 (`liblapack.dll`, `openblas.dll`, Fortran 런타임 DLL들)
+- numpy가 설치되어 있는지 확인 (`pip install numpy` 또는 `uv add numpy`)
 
 ---
 
-**최종 업데이트**: 2025-12-08
+### 4. 특정 로봇만 계산이 안 되는 경우
+
+**증상**:
+- 대부분의 로봇은 정상 작동하지만 특정 로봇(예: KJ125, MPX3500 시리즈)만 IK 계산이 실패하거나 무한 루프 발생
+
+**해결책**:
+- `robots/` 디렉토리에 해당 로봇의 DLL 파일이 있는지 확인
+- `robots/` 디렉토리에 LAPACK 의존성 DLL들(`liblapack.dll`, `openblas.dll`, `libgfortran-5.dll`, `libgcc_s_seh-1.dll`, `libquadmath-0.dll`, `libwinpthread-1.dll`)이 **모두** 있는지 확인
+- 만약 일부 DLL이 누락되었다면, 이 저장소의 `src/robots/` 폴더를 **전체** 복사하여 사용하세요
+
+---
+
+**최종 업데이트**: 2025-12-10
 
 **지원 로봇**: 13개 (Kawasaki 2개, Yaskawa 11개)
 **상태**: Production Ready ✅
