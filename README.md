@@ -12,6 +12,7 @@ IKFast 기반 IK Solver 통합 라이브러리입니다. 플러그인 아키텍�
 - [사용 예제](#사용-예제)
   - [Python 예제](#python-예제)
   - [C# 예제](#c-예제)
+  - [Unity 예제](#unity-예제)
 - [API 레퍼런스](#api-레퍼런스)
   - [초기화 함수](#초기화-함수)
   - [IK 함수](#ik-함수)
@@ -36,10 +37,9 @@ IKFast 기반 IK Solver 통합 라이브러리입니다. 플러그인 아키텍�
 
 ```
 ik-solver/
-├── ikfast_solver.pyd                      # Python 모듈 (기본: Python 3.12)
 ├── ikfast_solver.cp310-win_amd64.pyd      # Python 3.10 모듈
 ├── ikfast_solver.cp311-win_amd64.pyd      # Python 3.11 모듈
-├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈
+├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈 (권장)
 ├── IKFastUnity_x64.dll                    # C#/Unity DLL (C# 사용 시)
 └── src/
     └── robots/                            # 로봇 플러그인 DLL들 (13개) + LAPACK/BLAS
@@ -62,8 +62,7 @@ ik-solver/
         ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
         ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
         ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
-        ├── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
-        └── libwinpthread-1.dll            # Windows pthread (LAPACK 의존성)
+        └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
 ```
 
 ### 1. C# / Unity 사용 시
@@ -86,13 +85,103 @@ YourProject/
     └── libgfortran-5.dll, ...    # Fortran 런타임 DLL들
 ```
 
-> **Unity 프로젝트**: `IKFastUnity_x64.dll`과 `src/robots/` 폴더의 모든 DLL을 `Assets/Plugins/x86_64/`에 복사하세요. Unity는 재귀적으로 플러그인을 검색하므로 제조사/모델명 디렉토리 구조 그대로 복사하면 됩니다.
-
 #### C# 프로젝트 설정
 
 1. **DLL 참조**: P/Invoke를 사용하여 `IKFastUnity_x64.dll`을 호출합니다. (아래 API 레퍼런스 참조)
 2. **초기화**: `IKU_Init(robotsDir)` 호출하여 로봇 플러그인 로드
 3. **사용**: IK/FK 함수 호출
+
+#### Unity 프로젝트 설정
+
+**1. 파일 복사**
+
+다음 파일들을 Unity 프로젝트에 복사하세요:
+
+```
+YourUnityProject/
+└── Assets/
+    └── Plugins/
+        └── x86_64/                       # 64비트 네이티브 플러그인 폴더
+            ├── IKFastUnity_x64.dll       # 이 저장소의 IKFastUnity_x64.dll
+            └── robots/                    # 이 저장소의 src/robots/ 전체 복사
+                ├── kawasaki/
+                │   ├── KJ125/kj125_ikfast.dll
+                │   └── RS007L/rs007l_ikfast.dll
+                ├── yaskawa/
+                │   ├── GP4/gp4_ikfast.dll
+                │   ├── GP7/gp7_ikfast.dll
+                │   └── ... (총 11개)
+                ├── liblapack.dll
+                ├── openblas.dll
+                ├── libgfortran-5.dll
+                ├── libgcc_s_seh-1.dll
+                └── libquadmath-0.dll
+```
+
+> **중요**: `Assets/Plugins/x86_64/` 경로는 Unity가 64비트 Windows 네이티브 플러그인을 자동으로 인식하는 표준 경로입니다. 하위 폴더 구조(`robots/kawasaki/`, `robots/yaskawa/`)는 그대로 유지하세요.
+
+**2. 예제 스크립트 복사**
+
+다음 스크립트들을 `Assets/Scripts/`에 복사하세요:
+- `examples/IKFastWrapper.cs` - Unity용 래퍼 클래스 (필수)
+- `examples/RobotIKExample.cs` - MonoBehaviour 예제 (선택)
+
+**3. 플러그인 설정 (Inspector)**
+
+Unity Editor에서 `IKFastUnity_x64.dll`을 선택하고 Inspector에서 다음을 확인:
+- **Select platforms for plugin**: ✅ Windows
+- **CPU**: x86_64
+
+> **참고**: 로봇 DLL들(`gp25_ikfast.dll` 등)과 LAPACK 의존성 DLL들은 자동으로 로드되므로 별도 설정이 필요 없습니다.
+
+**4. 빌드 설정**
+
+Unity 빌드 시 주의사항:
+- **Platform**: Windows
+- **Architecture**: x86_64 (Intel 64-bit)
+- 빌드 후 `YourGame_Data/Plugins/` 폴더에 모든 DLL이 포함되었는지 확인
+
+**5. 사용 예제**
+
+간단한 사용 예제:
+
+```csharp
+using UnityEngine;
+using IKFast;
+
+public class SimpleIKTest : MonoBehaviour
+{
+    void Start()
+    {
+        // 초기화 (한 번만 호출)
+        string robotsPath = Application.dataPath + "/Plugins/x86_64/robots";
+        if (IKFastSolver.Initialize(robotsPath))
+        {
+            Debug.Log("IKFast initialized successfully");
+            
+            // 목표 자세 설정
+            Matrix4x4 targetPose = Matrix4x4.TRS(
+                new Vector3(0.5f, 0f, 0.3f),  // 위치 (미터)
+                Quaternion.identity,          // 회전 (0도)
+                Vector3.one
+            );
+            
+            // IK 계산
+            var solutions = IKFastSolver.SolveIK("gp25", targetPose);
+            Debug.Log($"Found {solutions.Length} IK solutions");
+            
+            if (solutions.Length > 0)
+            {
+                // 첫 번째 솔루션 출력 (라디안 -> 도)
+                double[] jointsDeg = IKFastSolver.RadToDeg(solutions[0]);
+                Debug.Log($"Solution 1: [{string.Join(", ", jointsDeg)}]");
+            }
+        }
+    }
+}
+```
+
+전체 예제는 `RobotIKExample.cs`를 참고하세요.
 
 
 ### 2. Python 사용 시
@@ -101,8 +190,8 @@ YourProject/
 
 ```
 YourProject/
-├── ikfast_solver.pyd              # Python 버전에 맞는 .pyd 파일
-└── robots/                        # 이 저장소의 src/robots/ 전체 복사
+├── ikfast_solver.cp3XX-win_amd64.pyd  # Python 버전에 맞는 .pyd 파일
+└── robots/                            # 이 저장소의 src/robots/ 전체 복사
     ├── kawasaki/                  # Kawasaki 로봇 DLL (2개)
     ├── yaskawa/                   # Yaskawa 로봇 DLL (11개)
     ├── liblapack.dll              # LAPACK 라이브러리
@@ -111,11 +200,11 @@ YourProject/
 ```
 
 **Python 버전별 .pyd 파일 선택**:
-- **Python 3.12 (권장)**: `ikfast_solver.pyd` (기본 파일)
-- **Python 3.11**: `ikfast_solver.cp311-win_amd64.pyd` → 프로젝트로 복사 후 `ikfast_solver.pyd`로 이름 변경
-- **Python 3.10**: `ikfast_solver.cp310-win_amd64.pyd` → 프로젝트로 복사 후 `ikfast_solver.pyd`로 이름 변경
+- **Python 3.12 (권장)**: `ikfast_solver.cp312-win_amd64.pyd`
+- **Python 3.11**: `ikfast_solver.cp311-win_amd64.pyd`
+- **Python 3.10**: `ikfast_solver.cp310-win_amd64.pyd`
 
-> **참고**: Python은 `import ikfast_solver` 실행 시 자동으로 현재 환경의 Python 버전에 맞는 모듈을 찾아 로드합니다.
+> **중요**: 사용 중인 Python 버전에 맞는 .pyd 파일을 프로젝트에 복사하세요. Python은 `import ikfast_solver` 실행 시 자동으로 현재 환경의 Python 버전에 맞는 `.cp3XX-win_amd64.pyd` 파일을 찾아 로드합니다. 이름 변경은 필요 없습니다.
 
 #### Python 프로젝트 설정
 
@@ -125,24 +214,25 @@ YourProject/
 
 **Python 바인딩 모듈 사용**
 
-1. **numpy 설치**: `pip install numpy` 또는 `uv add numpy`
-
-2. **DLL 검색 경로 추가** (Windows Python 3.8+):
+1. **DLL 검색 경로 추가** (Windows Python 3.8+):
    ```python
    import os
    import numpy as np  # numpy를 먼저 import
 
-   robots_dir = os.path.abspath("robots")  # 또는 절대 경로
+   # vcpkg bin 디렉토리 추가 (Fortran 런타임 등 LAPACK 의존성)
+   vcpkg_bin = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "installed", "x64-windows", "bin")
 
    if hasattr(os, 'add_dll_directory'):
-       os.add_dll_directory(robots_dir)
+       if os.path.isdir(vcpkg_bin):
+           os.add_dll_directory(vcpkg_bin)
+       os.add_dll_directory("path/to/robots")
 
    import ikfast_solver
    ```
 
-3. **초기화**: `ikfast_solver.load_ik_plugins(robots_dir)` (성공 시 반환값 없음, 실패 시 `RuntimeError` 발생)
+2. **초기화**: `ikfast_solver.load_ik_plugins(robots_dir)` (성공 시 반환값 없음, 실패 시 `RuntimeError` 발생)
 
-   > **참고**: `robots/` 폴더에는 모든 로봇 플러그인 DLL과 LAPACK/BLAS 의존성이 포함되어 있어 별도의 설정이 필요하지 않습니다.
+   > **중요**: KJ125, MPX3500 시리즈를 사용하려면 vcpkg bin 디렉토리를 반드시 추가해야 합니다. 이 디렉토리에는 LAPACK이 필요로 하는 Fortran 런타임 라이브러리들(`libgfortran-5.dll`, `libquadmath-0.dll` 등)이 있습니다. (문제 해결 단락 참조)
 
 ---
 
@@ -157,9 +247,12 @@ import os
 import numpy as np
 
 # 1. DLL 검색 경로 설정 (numpy를 먼저 import)
+vcpkg_bin = os.path.join(os.environ.get("VCPKG_ROOT", r"C:\dev\vcpkg"), "installed", "x64-windows", "bin")
 robots_dir = os.path.abspath("robots")
 
 if hasattr(os, 'add_dll_directory'):
+    if os.path.isdir(vcpkg_bin):
+        os.add_dll_directory(vcpkg_bin)
     os.add_dll_directory(robots_dir)
 
 # 2. ikfast_solver 모듈 import 및 초기화
@@ -224,6 +317,9 @@ if is_solvable:
 ### C# 예제
 
 **완전한 IK/FK 사용 예제**
+
+> **Unity 사용자**: 아래 C# 예제 대신 [Unity 예제](#unity-예제) 섹션을 참고하세요. Unity에서는 `IKFastWrapper.cs`를 사용하는 것이 더 편리합니다.
+
 
 ```csharp
 using System;
@@ -356,6 +452,149 @@ class IKFastExample
 > **예제 파일 위치**: 위 예제 코드는 [examples/](examples/) 디렉토리에서 확인할 수 있습니다.
 > - Python: [example_python.py](examples/example_python.py)
 > - C#: [example_csharp.cs](examples/example_csharp.cs)
+
+---
+
+### Unity 예제
+
+**Unity MonoBehaviour 예제**
+
+Unity에서는 `IKFastWrapper.cs` 래퍼 클래스를 사용하여 간편하게 IKFast를 호출할 수 있습니다.
+
+#### 1. 기본 사용법
+
+```csharp
+using UnityEngine;
+using IKFast;
+
+public class SimpleIKTest : MonoBehaviour
+{
+    void Start()
+    {
+        // 1. 초기화 (한 번만 호출)
+        string robotsPath = Application.dataPath + "/Plugins/x86_64/robots";
+        
+        if (!IKFastSolver.Initialize(robotsPath))
+        {
+            Debug.LogError("Failed to initialize IKFast");
+            return;
+        }
+        
+        Debug.Log("IKFast initialized successfully");
+        
+        // 2. 로봇 정보 조회
+        string robotName = "gp25";
+        int dof = IKFastSolver.GetNumJoints(robotName);
+        Debug.Log($"Robot: {robotName}, DOF: {dof}");
+        
+        // 3. 관절 제한 조회
+        var limits = IKFastSolver.GetJointLimits(robotName);
+        if (limits.HasValue)
+        {
+            Debug.Log("Joint Limits:");
+            for (int i = 0; i < dof; i++)
+            {
+                double lowerDeg = IKFastSolver.RadToDeg(limits.Value.Lower[i]);
+                double upperDeg = IKFastSolver.RadToDeg(limits.Value.Upper[i]);
+                Debug.Log($"  Joint {i + 1}: [{lowerDeg:F2}°, {upperDeg:F2}°]");
+            }
+        }
+        
+        // 4. 목표 TCP 자세 설정
+        Matrix4x4 targetPose = Matrix4x4.TRS(
+            new Vector3(0.5f, 0f, 0.3f),  // 위치 (미터)
+            Quaternion.identity,          // 회전
+            Vector3.one
+        );
+        
+        // 5. IK 계산 - 모든 솔루션
+        var solutions = IKFastSolver.SolveIK(robotName, targetPose);
+        Debug.Log($"Found {solutions.Length} IK solutions");
+        
+        if (solutions.Length > 0)
+        {
+            // 첫 번째 솔루션 출력 (라디안 -> 도)
+            double[] jointsDeg = IKFastSolver.RadToDeg(solutions[0]);
+            string jointsStr = string.Join(", ", System.Array.ConvertAll(jointsDeg, j => $"{j:F2}°"));
+            Debug.Log($"Solution 1: [{jointsStr}]");
+            
+            // FK로 검증
+            var fkResult = IKFastSolver.ComputeFK(robotName, solutions[0]);
+            if (fkResult.HasValue)
+            {
+                Vector3 fkPos = fkResult.Value.GetPosition();
+                float error = Vector3.Distance(targetPose.GetPosition(), fkPos);
+                Debug.Log($"FK verification error: {error:E3} m");
+            }
+        }
+    }
+}
+```
+
+#### 2. 특정 구성(Configuration)으로 IK 계산
+
+```csharp
+// Right-Down-NoFlip 구성의 솔루션 찾기
+double[] joints;
+bool success = IKFastSolver.SolveIKWithConfig(
+    robotName, targetPose,
+    RobotConfig.RIGHT,   // 어깨
+    RobotConfig.DOWN,    // 팔꿈치
+    RobotConfig.N_FLIP,  // 손목
+    out joints
+);
+
+if (success)
+{
+    double[] jointsDeg = IKFastSolver.RadToDeg(joints);
+    Debug.Log($"Config solution: [{string.Join(", ", jointsDeg)}]");
+}
+```
+
+#### 3. 현재 위치에서 가장 가까운 솔루션
+
+```csharp
+// 현재 관절 각도 (라디안)
+double[] currentJoints = new double[dof];  // 0으로 초기화
+
+// 가장 가까운 솔루션 계산
+double[] nearestJoints;
+bool success = IKFastSolver.SolveIKNearest(
+    robotName, targetPose, currentJoints,
+    out nearestJoints
+);
+
+if (success)
+{
+    double[] jointsDeg = IKFastSolver.RadToDeg(nearestJoints);
+    Debug.Log($"Nearest solution: [{string.Join(", ", jointsDeg)}]");
+}
+```
+
+#### 4. GameObject를 사용한 전체 예제
+
+`RobotIKExample.cs` 스크립트를 GameObject에 부착하여 사용:
+
+1. **GameObject 생성**: Hierarchy에서 빈 GameObject 생성 (이름: "RobotIKTester")
+2. **스크립트 부착**: `RobotIKExample.cs`를 드래그하여 GameObject에 부착
+3. **Inspector 설정**:
+   - Robot Name: `gp25` (또는 다른 로봇)
+   - Target Position: `(0.5, 0, 0.3)`
+   - Target Rotation: `(0, 0, 0)`
+   - Auto Initialize: ✅
+4. **Play**: Play 모드 실행 후 Console 확인
+
+**Context Menu로 테스트**:
+- Inspector에서 Component 우클릭
+- "Initialize IKFast" - 초기화
+- "Solve IK - All Solutions" - 모든 솔루션 계산
+- "Solve IK - With Configuration" - 특정 구성 솔루션
+- "Solve IK - Nearest" - 가장 가까운 솔루션
+- "Compute FK" - FK 계산
+
+> **예제 파일 위치**: 
+> - Unity 래퍼: [examples/IKFastWrapper.cs](examples/IKFastWrapper.cs)
+> - MonoBehaviour 예제: [examples/RobotIKExample.cs](examples/RobotIKExample.cs)
 
 ---
 
@@ -752,8 +991,7 @@ cd ik-solver
 빌드 후 다음 파일이 생성됩니다:
 - `ikfast_solver.cp310-win_amd64.pyd` (Python 3.10)
 - `ikfast_solver.cp311-win_amd64.pyd` (Python 3.11)
-- `ikfast_solver.cp312-win_amd64.pyd` (Python 3.12)
-- `ikfast_solver.pyd` (Python 3.12 기본 복사본)
+- `ikfast_solver.cp312-win_amd64.pyd` (Python 3.12, 권장)
 
 > **요구사항**:
 > - [uv](https://github.com/astral-sh/uv) 설치 필요
@@ -780,17 +1018,11 @@ dotnet run -c Release -p:Platform=x64
 
 ### Python 테스트
 
-**uv 사용 (권장)**:
 ```powershell
-uv run --python 3.12 python tests\unified_test.py
+python tests\test_python.py
 ```
 
-**일반 Python**:
-```powershell
-python tests\unified_test.py
-```
-
-> **참고**: Python 3.10+ 필요 (3.10, 3.11, 3.12 지원). uv 또는 conda 환경 모두 지원됩니다.
+> **참고**: Python 3.12+ 필요. uv 또는 conda 환경 모두 지원됩니다.
 
 **DLL 의존성 처리**:
 - 테스트 스크립트가 자동으로 `src/robots/` 디렉토리를 DLL 검색 경로에 추가합니다 (LAPACK 포함)
@@ -818,10 +1050,9 @@ python tests\unified_test.py
 ```
 ik-solver/
 ├── README.md                              # 이 문서
-├── ikfast_solver.pyd                      # Python 모듈 (기본: Python 3.12)
 ├── ikfast_solver.cp310-win_amd64.pyd      # Python 3.10 모듈
 ├── ikfast_solver.cp311-win_amd64.pyd      # Python 3.11 모듈
-├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈
+├── ikfast_solver.cp312-win_amd64.pyd      # Python 3.12 모듈 (권장)
 ├── IKFastUnity_x64.dll                    # C#/Unity 통합 DLL
 ├── build_all_python_versions.bat          # 멀티 버전 빌드 (Windows Batch)
 ├── build_all_python_versions.ps1          # 멀티 버전 빌드 (PowerShell)
@@ -849,13 +1080,15 @@ ik-solver/
 │       │   ├── MPX3500-C00X/mpx3500_c00x_ikfast.dll
 │       │   └── MPX3500-C10X/mpx3500_c10x_ikfast.dll
 │       ├── liblapack.dll                  # Reference LAPACK (vcpkg)
-│       ├── openblas.dll                   # OpenBLAS (vcpkg, LAPACK 의존성)
+│       ├── openblas.dll                   # OpenBLAS (LAPACK 의존성)
 │       ├── libgfortran-5.dll              # Fortran runtime (LAPACK 의존성)
 │       ├── libgcc_s_seh-1.dll             # GCC runtime (LAPACK 의존성)
-│       ├── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
-│       └── libwinpthread-1.dll            # Windows pthread (LAPACK 의존성)
+│       └── libquadmath-0.dll              # Quad-precision math (LAPACK 의존성)
 ├── examples/
-│   └── example_python.py                  # Python 사용 예제
+│   ├── example_python.py                  # Python 사용 예제
+│   ├── example_csharp.cs                  # C# 콘솔 사용 예제
+│   ├── IKFastWrapper.cs                   # Unity 래퍼 클래스
+│   └── RobotIKExample.cs                  # Unity MonoBehaviour 예제
 └── tests/
     ├── unified_test.py                    # Python 통합 테스트
     ├── Program.cs                         # C# 테스트 소스 코드
@@ -907,35 +1140,121 @@ ImportError: DLL load failed while importing ikfast_solver
 import os
 import numpy as np  # numpy를 먼저 import
 
-robots_dir = os.path.abspath("robots")
-
 # DLL 검색 경로 추가 (Python 3.8+ 필수)
 if hasattr(os, 'add_dll_directory'):
-    os.add_dll_directory(robots_dir)
+    os.add_dll_directory("path/to/robots")
 
 import ikfast_solver  # 이제 import 가능
 ```
 
-**추가 확인 사항**:
-- `robots/` 디렉토리에 로봇 플러그인 DLL들이 있는지 확인
-- `robots/` 디렉토리에 LAPACK/BLAS DLL들이 있는지 확인 (`liblapack.dll`, `openblas.dll`, Fortran 런타임 DLL들)
-- numpy가 설치되어 있는지 확인 (`pip install numpy` 또는 `uv add numpy`)
-
 ---
 
-### 4. 특정 로봇만 계산이 안 되는 경우
+### 4. Unity에서 DLL 로드 실패
 
 **증상**:
-- 대부분의 로봇은 정상 작동하지만 특정 로봇(예: KJ125, MPX3500 시리즈)만 IK 계산이 실패하거나 무한 루프 발생
+```
+DllNotFoundException: IKFastUnity_x64
+```
 
 **해결책**:
-- `robots/` 디렉토리에 해당 로봇의 DLL 파일이 있는지 확인
-- `robots/` 디렉토리에 LAPACK 의존성 DLL들(`liblapack.dll`, `openblas.dll`, `libgfortran-5.dll`, `libgcc_s_seh-1.dll`, `libquadmath-0.dll`, `libwinpthread-1.dll`)이 **모두** 있는지 확인
-- 만약 일부 DLL이 누락되었다면, 이 저장소의 `src/robots/` 폴더를 **전체** 복사하여 사용하세요
+
+1. **파일 위치 확인**:
+   - `Assets/Plugins/x86_64/IKFastUnity_x64.dll` 존재 확인
+   - `Assets/Plugins/x86_64/robots/` 디렉토리에 모든 로봇 DLL과 의존성 DLL 존재 확인
+
+2. **플러그인 설정 확인** (Inspector):
+   - `IKFastUnity_x64.dll` 선택
+   - Platform: ✅ Windows
+   - CPU: x86_64
+   - Load on startup: ✅ (권장)
+
+3. **빌드 설정 확인**:
+   - Build Settings → Architecture: x86_64
+   - Player Settings → Configuration → Scripting Backend: Mono (권장) 또는 IL2CPP
+
+4. **초기화 경로 확인**:
+   ```csharp
+   // Editor에서 실행 시
+   string robotsPath = Application.dataPath + "/Plugins/x86_64/robots";
+   
+   // 빌드된 실행 파일에서는
+   string robotsPath = Application.dataPath + "/Plugins/robots";
+   ```
+
+5. **Visual C++ Redistributable 설치**:
+   - Unity Editor와 빌드된 게임 모두 필요
+   - https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 ---
 
-**최종 업데이트**: 2025-12-10
+### 5. LAPACK 충돌 문제 (KJ125, MPX3500 시리즈)
+
+**증상**:
+- 관절 구조가 일반적이지 않은 특정 로봇만 문제 발생
+
+**원인**:
+KJ125와 MPX3500 시리즈 등 일반적이지 않은 관절구조를 지닌 로봇은 IKFast 내부에서 eigenvalue 계산을 위해 LAPACK의 `dgeev_` 함수를 호출합니다. Conda/Miniconda 환경에서는 conda의 LAPACK 라이브러리나 vcpkg의 OpenBLAS가 특정 케이스에서 무한 루프를 발생시킬 수 있습니다.
+
+**해결책**:
+
+**vcpkg Reference LAPACK 사용 (권장)**
+
+1. vcpkg에서 reference LAPACK 설치:
+   ```powershell
+   C:\dev\vcpkg\vcpkg.exe install lapack:x64-windows
+   ```
+
+2. Reference LAPACK 및 의존성 DLL들을 robots 디렉토리에 복사:
+   ```powershell
+   # LAPACK 및 BLAS 라이브러리
+   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\lapack.dll src\robots\liblapack.dll -Force
+   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\openblas.dll src\robots\openblas.dll -Force
+
+   # Fortran 런타임 의존성 (LAPACK이 필요로 함)
+   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\libgfortran-5.dll src\robots\ -Force
+   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\libgcc_s_seh-1.dll src\robots\ -Force
+   Copy-Item C:\dev\vcpkg\installed\x64-windows\bin\libquadmath-0.dll src\robots\ -Force
+   ```
+
+3. `src/robots/` 디렉토리 구조 확인:
+   ```
+   src/robots/
+   ├── liblapack.dll          # Reference LAPACK (vcpkg)
+   ├── openblas.dll           # OpenBLAS (vcpkg, LAPACK 의존성)
+   ├── libgfortran-5.dll      # Fortran runtime
+   ├── libgcc_s_seh-1.dll     # GCC runtime
+   ├── libquadmath-0.dll      # Quad-precision math
+   ├── gp25_ikfast.dll        # 로봇 플러그인 DLL들...
+   ├── kj125_ikfast.dll
+   └── mpx3500_c00x_ikfast.dll
+   ```
+
+4. 빌드 및 테스트:
+   ```powershell
+   # Python 모듈 빌드
+   python setup.py build_ext --inplace --force
+
+   # 테스트
+   python .\tests\unified_test.py
+   ```
+
+**검증**:
+정상 작동하면 다음과 같은 메시지가 나타나고, 모든 로봇의 IK 계산이 완료됩니다:
+```
+Testing 13 robot(s):
+--------------------------------------------------------------------------------
+GP4       | solve_ik =OK (08 sol, err=0.000000)  ...
+...
+KJ125     | solve_ik =OK (08 sol, err=0.000000)  ...
+--------------------------------------------------------------------------------
+Result: 13/13 robots passed all tests
+```
+
+**참고**: OpenBLAS 대신 reference LAPACK을 사용하는 이유는 OpenBLAS의 `dgeev_` 구현이 특정 입력에서 불안정할 수 있기 때문입니다. Reference LAPACK은 느리지만 매우 안정적입니다.
+
+---
+
+**최종 업데이트**: 2025-12-08
 
 **지원 로봇**: 13개 (Kawasaki 2개, Yaskawa 11개)
 **상태**: Production Ready ✅

@@ -21,28 +21,12 @@ def _load_ikfast_solver():
     if is_conda:
         os.environ.setdefault('CONDA_DLL_SEARCH_MODIFICATION_ENABLE', '1')
 
-    # Auto-detect Python version
-    py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
-    py_tag = f"cp{py_ver}-win_amd64"
-
+    # Detect current Python version (e.g., 3.10, 3.11, 3.12)
+    py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    
     candidates = [
-        # Current Python version files
-        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}.conda.pyd'),
-        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}.sys.pyd'),
-        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}.pyd'),
-        os.path.join(PROJECT_ROOT, 'build', f'lib.win-amd64-cpython-{py_ver}', f'ikfast_solver.{py_tag}.pyd'),
-        # Generic fallback
-        os.path.join(PROJECT_ROOT, 'ikfast_solver.pyd'),
-        # Legacy Python 3.10 files (for backwards compatibility)
-        os.path.join(PROJECT_ROOT, 'ikfast_solver.cp310-win_amd64.conda.pyd'),
-        os.path.join(PROJECT_ROOT, 'ikfast_solver.cp310-win_amd64.sys.pyd'),
-        os.path.join(PROJECT_ROOT, 'ikfast_solver.cp310-win_amd64.pyd'),
-        os.path.join(PROJECT_ROOT, 'build', 'lib.win-amd64-cpython-310', 'ikfast_solver.cp310-win_amd64.pyd')
+        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}-win_amd64.pyd'),
     ]
-    # fallback: any ikfast_solver*.pyd under PROJECT_ROOT
-    for f in os.listdir(PROJECT_ROOT):
-        if f.startswith('ikfast_solver') and f.endswith('.pyd'):
-            candidates.append(os.path.join(PROJECT_ROOT, f))
     for p in candidates:
         if os.path.isfile(p):
             spec = importlib.util.spec_from_file_location('ikfast_solver', p)
@@ -192,7 +176,9 @@ def test_robot(robot_name):
     ]
     
     # Step 1: FK to get original TCP pose
-    fk_pos_orig, fk_rot_orig = ikfast_solver.compute_fk(robot_name, orig_joints)
+    fk_pos_orig, fk_rot_orig, fk_ok = ikfast_solver.compute_fk(robot_name, orig_joints)
+    if not fk_ok:
+        return {"error": "FK failed for original joints"}
     tcp_pose_orig = tcp_to_matrix(fk_pos_orig, fk_rot_orig)
     
     results = {}
@@ -208,7 +194,9 @@ def test_robot(robot_name):
         
         for idx, ik_joints in enumerate(solutions):
             try:
-                fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, ik_joints)
+                fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, ik_joints)
+                if not fk_ok:
+                    continue
                 tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
                 
                 # Compare TCP poses (position + orientation)
@@ -263,10 +251,13 @@ def test_robot(robot_name):
         )
 
         if is_solvable:
-            fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, joints)
-            tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
-            tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
-            results['solve_ik_with_config'] = f"OK (err={tcp_error:.6f})"
+            fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
+            if not fk_ok:
+                results['solve_ik_with_config'] = "FK failed"
+            else:
+                tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
+                tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
+                results['solve_ik_with_config'] = f"OK (err={tcp_error:.6f})"
         else:
             # Fallback: use solve_ik and filter in Python to avoid platform differences
             sols, ok = ikfast_solver.solve_ik(robot_name, tcp_pose_orig)
@@ -280,7 +271,9 @@ def test_robot(robot_name):
                     elbow = 0 if j2 > -eps else 1
                     wrist = 0 if j4 > -eps else 1
                     if (shoulder, elbow, wrist) == (expected_shoulder, expected_elbow, expected_wrist):
-                        fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, s)
+                        fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, s)
+                        if not fk_ok:
+                            continue
                         tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
                         tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
                         results['solve_ik_with_config'] = f"OK (err={tcp_error:.6f})"
@@ -300,10 +293,13 @@ def test_robot(robot_name):
         )
         if is_solvable:
             # Convert IK result back to TCP and compare
-            fk_pos, fk_rot = ikfast_solver.compute_fk(robot_name, joints)
-            tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
-            tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
-            results['solve_ik_with_joint'] = f"OK (err={tcp_error:.6f})"
+            fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
+            if not fk_ok:
+                results['solve_ik_with_joint'] = "FK failed"
+            else:
+                tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
+                tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
+                results['solve_ik_with_joint'] = f"OK (err={tcp_error:.6f})"
         else:
             results['solve_ik_with_joint'] = "FAIL"
     except ValueError:

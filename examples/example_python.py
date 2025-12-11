@@ -47,10 +47,13 @@ except ImportError:
 
 # robots 경로 결정 (배포/프로젝트 구조 모두 대응)
 robots_candidates = [
-    os.path.join(script_dir, "robots"),           # 배포: 같은 디렉토리
-    os.path.join(os.path.dirname(script_dir), "robots"),  # 프로젝트: 상위
+    os.path.join(script_dir, "robots"),                                      # 배포: 같은 디렉토리
+    os.path.join(os.path.dirname(script_dir), "robots"),                    # 프로젝트: 상위 (examples 형제)
+    os.path.join(os.path.dirname(script_dir), "src", "robots"),             # 프로젝트: src 하위
 ]
-robots_dir = next((p for p in robots_candidates if os.path.isdir(p)), robots_candidates[0])
+robots_dir = next((p for p in robots_candidates if os.path.isdir(p)), None)
+if not robots_dir:
+    raise RuntimeError(f"robots 디렉토리를 찾을 수 없습니다. 시도한 경로:\n  " + "\n  ".join(robots_candidates))
 
 # DLL 경로 설정
 dll_dirs = [script_dir, robots_dir]
@@ -112,12 +115,15 @@ if is_solvable:
         print(f"  솔루션 {i+1}: {[f'{d:7.2f}°' for d in sol_deg]}")
 
     # 첫 번째 솔루션으로 FK 검증
-    fk_trans, fk_rot = ikfast_solver.compute_fk(robot_name, solutions[0])
-    target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
-    error = np.linalg.norm(target_pos - fk_trans)
-    print(f"\nFK 검증 (솔루션 1):")
-    print(f"  위치: ({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}) m")
-    print(f"  오차: {error:.3e} m")
+    fk_trans, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, solutions[0])
+    if fk_ok:
+        target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
+        error = np.linalg.norm(target_pos - fk_trans)
+        print(f"\nFK 검증 (솔루션 1):")
+        print(f"  위치: ({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}) m")
+        print(f"  오차: {error:.3e} m")
+    else:
+        print("\nFK 검증 실패")
 else:
     print("솔루션을 찾을 수 없습니다.")
 
@@ -165,10 +171,13 @@ if is_solvable:
     print(f"가장 가까운 솔루션: {[f'{d:7.2f}°' for d in joints_deg]}")
 
     # FK 검증
-    fk_trans, fk_rot = ikfast_solver.compute_fk(robot_name, joints)
-    target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
-    error = np.linalg.norm(target_pos - fk_trans)
-    print(f"FK 검증 오차: {error:.3e} m")
+    fk_trans, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
+    if fk_ok:
+        target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
+        error = np.linalg.norm(target_pos - fk_trans)
+        print(f"FK 검증 오차: {error:.3e} m")
+    else:
+        print("FK 검증 실패")
 else:
     print("솔루션을 찾을 수 없습니다.")
 
@@ -182,12 +191,15 @@ print("=" * 60)
 test_joints = np.array([0, 0, np.pi/2, 0, np.pi/4, 0], dtype=np.float64)
 print(f"입력 관절 각도: {[f'{d:7.2f}°' for d in np.rad2deg(test_joints)]}")
 
-fk_trans, fk_rot = ikfast_solver.compute_fk(robot_name, test_joints)
-print(f"\nTCP 위치: ({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}) m")
-print("TCP 회전 행렬 (row-major):")
-fk_rot_matrix = fk_rot.reshape(3, 3)
-for row in fk_rot_matrix:
-    print(f"  [{row[0]:8.5f}, {row[1]:8.5f}, {row[2]:8.5f}]")
+fk_trans, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, test_joints)
+if fk_ok:
+    print(f"\nTCP 위치: ({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}) m")
+    print("TCP 회전 행렬 (row-major):")
+    fk_rot_matrix = fk_rot.reshape(3, 3)
+    for row in fk_rot_matrix:
+        print(f"  [{row[0]:8.5f}, {row[1]:8.5f}, {row[2]:8.5f}]")
+else:
+    print("FK 계산 실패")
 
 print("\n" + "=" * 60)
 print("예제 완료!")

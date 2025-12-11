@@ -19,15 +19,15 @@ def _load_ikfast_solver():
     # For conda, enable modified DLL search so add_dll_directory takes effect
     if is_conda:
         os.environ.setdefault('CONDA_DLL_SEARCH_MODIFICATION_ENABLE', '1')
-    candidates = []
-    # Prefer bin dual-builds if present
-    if is_conda:
-        candidates.append(os.path.join(BIN_DIR, 'ikfast_solver.cp310-win_amd64.conda.pyd'))
-    else:
-        candidates.append(os.path.join(BIN_DIR, 'ikfast_solver.cp310-win_amd64.sys.pyd'))
-    # Fallbacks
-    candidates.append(os.path.join(BIN_DIR, 'ikfast_solver.pyd'))
-    candidates.append(os.path.join(PROJECT_ROOT, 'ikfast_solver.pyd'))
+    
+    # Detect current Python version (e.g., 3.10, 3.11, 3.12)
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    
+    # Look for versioned .pyd files in PROJECT_ROOT (e.g., ikfast_solver.cp310-win_amd64.pyd)
+    candidates = [
+        os.path.join(PROJECT_ROOT, f'ikfast_solver.{py_tag}-win_amd64.pyd'),
+    ]
 
     for p in candidates:
         if os.path.isfile(p):
@@ -41,7 +41,7 @@ def _load_ikfast_solver():
                 except Exception as e:
                     # Try next candidate if this one fails
                     continue
-    raise ImportError('ikfast_solver .pyd not found in expected locations')
+    raise ImportError(f'ikfast_solver .pyd not found for Python {py_ver}. Expected: {candidates[0]}')
 
 # Prefer bundled BLAS/LAPACK over conda MKL by prepending PATH BEFORE numpy import
 # Resolve project root (ik-solver) from tests directory
@@ -145,11 +145,12 @@ def run_tests(robot_name, tcp_pose):
             deg = np.rad2deg(sol)
             print(f"  Solution {idx+1}: {[f'{d:8.2f}°' for d in deg]}")
         if is_solvable and solutions:
-            fk_trans, _ = ikfast_solver.compute_fk(robot_name, solutions[0])
-            # Compare position from matrix
-            target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
-            err = np.linalg.norm(target_pos - fk_trans)
-            print(f"  FK check (sol1): pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
+            fk_trans, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, solutions[0])
+            if fk_ok:
+                # Compare position from matrix
+                target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
+                err = np.linalg.norm(target_pos - fk_trans)
+                print(f"  FK check (sol1): pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
     except Exception as e:
         print(f"  [FAIL] IK all error: {e}")
     print()
@@ -172,10 +173,11 @@ def run_tests(robot_name, tcp_pose):
                 deg = np.rad2deg(joints)
                 for j, (r, d) in enumerate(zip(joints, deg)):
                     print(f"  J{j+1}: {d:8.2f}° ({r:8.4f} rad)")
-                fk_trans, _ = ikfast_solver.compute_fk(robot_name, joints)
-                target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
-                err = np.linalg.norm(target_pos - fk_trans)
-                print(f"  FK: pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
+                fk_trans, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
+                if fk_ok:
+                    target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
+                    err = np.linalg.norm(target_pos - fk_trans)
+                    print(f"  FK: pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
             else:
                 print("  [FAIL] No solution found")
         except Exception as e:
@@ -194,10 +196,11 @@ def run_tests(robot_name, tcp_pose):
             print("  [OK] Solution (nearest):")
             for j, (r, d) in enumerate(zip(joints, deg)):
                 print(f"    J{j+1}: {d:8.2f}° ({r:8.4f} rad)")
-            fk_trans, _ = ikfast_solver.compute_fk(robot_name, joints)
-            target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
-            err = np.linalg.norm(target_pos - fk_trans)
-            print(f"    FK: pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
+            fk_trans, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
+            if fk_ok:
+                target_pos = np.array([tcp_pose[3], tcp_pose[7], tcp_pose[11]])
+                err = np.linalg.norm(target_pos - fk_trans)
+                print(f"    FK: pos=({fk_trans[0]:.6f}, {fk_trans[1]:.6f}, {fk_trans[2]:.6f}), err={err:.3e} m")
         else:
             print("  [FAIL] No solution found")
     except Exception as e:
