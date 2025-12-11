@@ -210,13 +210,8 @@ namespace IKFast
         }
 
         /// <summary>
-<<<<<<< HEAD
         /// robots 디렉토리를 찾습니다.
         /// 우선순위: 사용자 지정 경로 > IKFastUnity DLL과 같은 위치 > 재귀 검색
-=======
-        /// robots 디렉토리를 재귀적으로 찾습니다.
-        /// 우선순위: 사용자 지정 경로 > Assets/Plugins/x86_64 > Assets/Plugins > Assets > 프로젝트 루트
->>>>>>> 18d3319 (🐛 fix(cs files): 오염된 코드 제거)
         /// </summary>
         private static string ResolveRobotsDirectory(string robotsDir)
         {
@@ -226,7 +221,6 @@ namespace IKFast
                 return Path.GetFullPath(robotsDir);
             }
 
-<<<<<<< HEAD
             // 2) IKFastUnity_x64.dll 위치를 기준으로 robots 폴더 찾기
             // Unity는 DLL을 Plugins 폴더에 배치하며, robots 폴더도 같은 위치에 있어야 함
             string dllDirectory = FindIKFastUnityDllDirectory();
@@ -268,47 +262,13 @@ namespace IKFast
                         if (IsValidRobotsDirectory(dir))
                         {
                             Debug.Log($"Found robots directory via recursive search: {dir}");
-=======
-            // 2) 검색 루트 목록 구성
-            string assetsPath = Application.dataPath; // .../Project/Assets
-            string pluginsPath = Path.Combine(assetsPath, "Plugins");
-            string x86Path = Path.Combine(pluginsPath, "x86_64");
-            string projectRoot = Path.GetFullPath(Path.Combine(assetsPath, ".."));
-
-            string[] searchRoots = new[]
-            {
-                x86Path,
-                pluginsPath,
-                assetsPath,
-                projectRoot
-            };
-
-            foreach (string root in searchRoots)
-            {
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-                    continue;
-
-                try
-                {
-                    foreach (string dir in Directory.EnumerateDirectories(root, "robots", SearchOption.AllDirectories))
-                    {
-                        // robots 폴더 안에 *_ikfast.dll 이나 liblapack.dll 등이 존재하면 유효하다고 간주
-                        bool hasIkfastDll = Directory.EnumerateFiles(dir, "*_ikfast.dll", SearchOption.AllDirectories).GetEnumerator().MoveNext();
-                        bool hasLapack = File.Exists(Path.Combine(dir, "liblapack.dll"));
-                        if (hasIkfastDll || hasLapack)
-                        {
->>>>>>> 18d3319 (🐛 fix(cs files): 오염된 코드 제거)
                             return Path.GetFullPath(dir);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-<<<<<<< HEAD
                     Debug.LogWarning($"Robots directory recursive search failed: {ex.Message}");
-=======
-                    Debug.LogWarning($"Robots directory search skipped at {root}: {ex.Message}");
->>>>>>> 18d3319 (🐛 fix(cs files): 오염된 코드 제거)
                 }
             }
 
@@ -317,7 +277,6 @@ namespace IKFast
         }
 
         /// <summary>
-<<<<<<< HEAD
         /// IKFastUnity_x64.dll이 있는 디렉토리를 찾습니다.
         /// </summary>
         private static string FindIKFastUnityDllDirectory()
@@ -368,8 +327,6 @@ namespace IKFast
         }
 
         /// <summary>
-=======
->>>>>>> 18d3319 (🐛 fix(cs files): 오염된 코드 제거)
         /// 로봇의 자유도(DOF) 조회
         /// </summary>
         /// <param name="robotName">로봇 이름 (예: "gp25")</param>
