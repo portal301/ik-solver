@@ -1,4 +1,3 @@
-@ -0,0 +1,462 @@
 /*
  * IKFast Solver Unity Wrapper
  *
@@ -30,6 +29,7 @@
  */
 
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
@@ -142,9 +142,9 @@ namespace IKFast
         /// <summary>
         /// IKFast 플러그인 초기화
         /// </summary>
-        /// <param name="robotsDir">로봇 플러그인 DLL 디렉토리 경로 (예: "Assets/Plugins/x86_64/robots")</param>
+        /// <param name="robotsDir">로봇 플러그인 DLL 디렉토리 경로 (비우면 프로젝트에서 재귀 검색)</param>
         /// <returns>초기화 성공 여부</returns>
-        public static bool Initialize(string robotsDir)
+        public static bool Initialize(string robotsDir = null)
         {
             if (_isInitialized)
             {
@@ -152,18 +152,26 @@ namespace IKFast
                 return true;
             }
 
+            // robotsDir 미지정 시 프로젝트 내에서 재귀적으로 검색
+            string resolvedDir = ResolveRobotsDirectory(robotsDir);
+            if (string.IsNullOrEmpty(resolvedDir))
+            {
+                Debug.LogError("Failed to locate robots directory. Specify robotsDir or place a 'robots' folder under Assets.");
+                return false;
+            }
+
             try
             {
-                int result = IKFastNative.IKU_Init(robotsDir);
+                int result = IKFastNative.IKU_Init(resolvedDir);
                 _isInitialized = (result != 0);
 
                 if (_isInitialized)
                 {
-                    Debug.Log($"IKFast initialized successfully from: {robotsDir}");
+                    Debug.Log($"IKFast initialized successfully from: {resolvedDir}");
                 }
                 else
                 {
-                    Debug.LogError($"Failed to initialize IKFast from: {robotsDir}");
+                    Debug.LogError($"Failed to initialize IKFast from: {resolvedDir}");
                 }
 
                 return _isInitialized;
@@ -173,6 +181,60 @@ namespace IKFast
                 Debug.LogError($"IKFast initialization error: {e.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// robots 디렉토리를 재귀적으로 찾습니다.
+        /// 우선순위: 사용자 지정 경로 > Assets/Plugins/x86_64 > Assets/Plugins > Assets > 프로젝트 루트
+        /// </summary>
+        private static string ResolveRobotsDirectory(string robotsDir)
+        {
+            // 1) 명시적 경로가 유효하면 그대로 사용
+            if (!string.IsNullOrEmpty(robotsDir) && Directory.Exists(robotsDir))
+            {
+                return Path.GetFullPath(robotsDir);
+            }
+
+            // 2) 검색 루트 목록 구성
+            string assetsPath = Application.dataPath; // .../Project/Assets
+            string pluginsPath = Path.Combine(assetsPath, "Plugins");
+            string x86Path = Path.Combine(pluginsPath, "x86_64");
+            string projectRoot = Path.GetFullPath(Path.Combine(assetsPath, ".."));
+
+            string[] searchRoots = new[]
+            {
+                x86Path,
+                pluginsPath,
+                assetsPath,
+                projectRoot
+            };
+
+            foreach (string root in searchRoots)
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                    continue;
+
+                try
+                {
+                    foreach (string dir in Directory.EnumerateDirectories(root, "robots", SearchOption.AllDirectories))
+                    {
+                        // robots 폴더 안에 *_ikfast.dll 이나 liblapack.dll 등이 존재하면 유효하다고 간주
+                        bool hasIkfastDll = Directory.EnumerateFiles(dir, "*_ikfast.dll", SearchOption.AllDirectories).GetEnumerator().MoveNext();
+                        bool hasLapack = File.Exists(Path.Combine(dir, "liblapack.dll"));
+                        if (hasIkfastDll || hasLapack)
+                        {
+                            return Path.GetFullPath(dir);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"Robots directory search skipped at {root}: {ex.Message}");
+                }
+            }
+
+            // 찾지 못한 경우
+            return null;
         }
 
         /// <summary>
