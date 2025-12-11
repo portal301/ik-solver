@@ -42,13 +42,13 @@ public class RobotIKExample : MonoBehaviour
 
     [Header("Configuration")]
     [Tooltip("어깨 구성 (RIGHT 또는 LEFT)")]
-    public RobotConfig shoulderConfig = RobotConfig.RIGHT;
+    public ShoulderConfig shoulderConfig = ShoulderConfig.RIGHT;
 
     [Tooltip("팔꿈치 구성 (UP 또는 DOWN)")]
-    public RobotConfig elbowConfig = RobotConfig.DOWN;
+    public ElbowConfig elbowConfig = ElbowConfig.DOWN;
 
     [Tooltip("손목 구성 (N_FLIP 또는 FLIP)")]
-    public RobotConfig wristConfig = RobotConfig.N_FLIP;
+    public WristConfig wristConfig = WristConfig.N_FLIP;
 
     [Header("Debug")]
     [Tooltip("IK 솔루션을 콘솔에 출력")]

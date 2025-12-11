@@ -17,30 +17,31 @@ namespace TestIKFast
         private const string DLL_NAME = "IKFastUnity_x64.dll";
 #endif
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPStr)] string robots_dir);
+        // UTF-8 인코딩을 사용하여 한글 경로 지원
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPUTF8Str)] string robots_dir);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPStr)] string robot_name);
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_GetJointLimits(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [Out] double[] out_lower,
             [Out] double[] out_upper,
             int max_joints);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
             [Out] double[] out_solutions,
             int max_solutions
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithConfig(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
             int shoulder_config,
             int elbow_config,
@@ -49,18 +50,18 @@ namespace TestIKFast
             out int out_is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithJoint(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
             [In] double[] current_joints,
             [Out] double[] out_joints,
             out int out_is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_ComputeFK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] joints,
             [Out] double[] out_eetrans,
             [Out] double[] out_eerot

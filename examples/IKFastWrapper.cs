@@ -36,19 +36,28 @@ using UnityEngine;
 namespace IKFast
 {
     /// <summary>
-    /// IKFast 로봇 구성 (Shoulder, Elbow, Wrist)
+    /// Shoulder configuration
     /// </summary>
-    public enum RobotConfig
+    public enum ShoulderConfig
     {
-        // Shoulder
         RIGHT = 0,
-        LEFT = 1,
+        LEFT = 1
+    }
 
-        // Elbow
+    /// <summary>
+    /// Elbow configuration
+    /// </summary>
+    public enum ElbowConfig
+    {
         UP = 0,
-        DOWN = 1,
+        DOWN = 1
+    }
 
-        // Wrist
+    /// <summary>
+    /// Wrist configuration
+    /// </summary>
+    public enum WristConfig
+    {
         N_FLIP = 0,
         FLIP = 1
     }
@@ -60,31 +69,33 @@ namespace IKFast
     {
         private const string DLL_NAME = "IKFastUnity_x64";
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPStr)] string robots_dir);
+        // UTF-8 인코딩을 사용하여 한글 경로 지원
+        // Unity 2021.2+ 지원: UnmanagedType.LPUTF8Str
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPUTF8Str)] string robots_dir);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPStr)] string robot_name);
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_GetJointLimits(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] out_lower,
             double[] out_upper,
             int max_joints
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
             double[] out_solutions,
             int max_solutions
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithConfig(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
             int shoulder_config,
             int elbow_config,
@@ -93,18 +104,18 @@ namespace IKFast
             out int is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithJoint(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
             double[] current_joints,
             double[] out_joints,
             out int is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_ComputeFK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] joints,
             double[] out_eetrans,
             double[] out_eerot
@@ -335,9 +346,9 @@ namespace IKFast
         public static bool SolveIKWithConfig(
             string robotName,
             Matrix4x4 targetPose,
-            RobotConfig shoulderConfig,
-            RobotConfig elbowConfig,
-            RobotConfig wristConfig,
+            ShoulderConfig shoulderConfig,
+            ElbowConfig elbowConfig,
+            WristConfig wristConfig,
             out double[] joints)
         {
             joints = null;
