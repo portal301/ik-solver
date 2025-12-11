@@ -45,12 +45,12 @@ namespace IKFast
         LEFT = 1,
 
         // Elbow
-        UP = 2,
-        DOWN = 3,
+        UP = 0,
+        DOWN = 1,
 
         // Wrist
-        N_FLIP = 4,
-        FLIP = 5
+        N_FLIP = 0,
+        FLIP = 1
     }
 
     /// <summary>
