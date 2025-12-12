@@ -82,22 +82,15 @@ public class RobotIKExample : MonoBehaviour
             return;
         }
 
-        // Unity 프로젝트의 Plugins 폴더 경로
-        // 빌드 시에는 Data 폴더로 변경될 수 있음
-        string robotsPath = Application.dataPath + "/Plugins/x86_64/robots";
-
-        // Editor에서만 동작하는 경로 (Plugins 직접 참조)
-#if UNITY_EDITOR
-        robotsPath = Application.dataPath + "/Plugins/x86_64/robots";
-#else
-        // 빌드된 애플리케이션에서는 실행 파일 기준 상대 경로
-        robotsPath = Application.dataPath + "/Plugins/robots";
-#endif
-
-        bool success = IKFastSolver.Initialize(robotsPath);
+        // robots 디렉토리 경로를 null로 전달하면 자동으로 IKFastUnity_x64.dll 위치에서 찾습니다
+        // IKFastWrapper.ResolveRobotsDirectory()가 다음 순서로 검색:
+        //   1. IKFastUnity_x64.dll과 같은 디렉토리의 robots 폴더
+        //   2. Assets/Plugins/x86_64/robots (에디터/빌드 표준 경로)
+        //   3. 재귀 검색 (fallback)
+        bool success = IKFastSolver.Initialize(null);
         if (!success)
         {
-            Debug.LogError($"Failed to initialize IKFast from: {robotsPath}");
+            Debug.LogError("Failed to initialize IKFast. Could not find robots directory.");
             Debug.LogError("Make sure IKFastUnity_x64.dll and robots/ folder are in Assets/Plugins/x86_64/");
             return;
         }
