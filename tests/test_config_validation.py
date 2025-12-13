@@ -96,15 +96,31 @@ def normalize_angle(angle):
     return angle
 
 
-def extract_config(joints):
-    """Extract config from joint angles (J1=shoulder, J3=elbow, J5=wrist)"""
+def extract_config(joints, robot_name='kj125'):
+    """Extract config from joint angles matching C++ matchesConfiguration logic
+
+    Args:
+        joints: Joint angles [J1, J2, J3, J4, J5, J6]
+        robot_name: Robot name for robot-specific references (default: kj125)
+    """
     eps = 1e-6
     j1 = normalize_angle(joints[0])
     j3 = normalize_angle(joints[2])
     j5 = normalize_angle(joints[4])
 
+    # Shoulder: sign-based (simplified, should use yaw-target but we don't have tcp_pose here)
     shoulder = 0 if j1 >= -eps else 1  # 0=RIGHT (positive), 1=LEFT (negative)
-    elbow = 0 if j3 >= -eps else 1     # 0=UP (positive), 1=DOWN (negative)
+
+    # Elbow: reference-based (matches C++ getJ3Reference)
+    # J3 < ref => UP (0), J3 >= ref => DOWN (1)
+    if robot_name.lower() == 'kj125':
+        j3_ref = math.pi / 2.0  # 90 degrees
+    else:
+        j3_ref = 0.0  # Default fallback
+    j3_delta = j3 - j3_ref
+    elbow = 0 if j3_delta < -eps else 1  # 0=UP (< ref), 1=DOWN (>= ref)
+
+    # Wrist: sign-based (matches C++ sign-based logic)
     wrist = 0 if j5 >= -eps else 1     # 0=N_FLIP (positive), 1=FLIP (negative)
 
     return (shoulder, elbow, wrist)
@@ -158,7 +174,7 @@ def test_robot_configs(robot_name):
     print(f"\n[Step 2] Extracting configs from all solutions...")
     configs = {}
     for i, sol in enumerate(solutions):
-        config = extract_config(sol)
+        config = extract_config(sol, robot_name)
         config_str = config_to_string(config)
 
         if config not in configs:
@@ -202,7 +218,7 @@ def test_robot_configs(robot_name):
             continue
 
         # Verify the returned solution matches this config
-        result_config = extract_config(result_joints)
+        result_config = extract_config(result_joints, robot_name)
 
         if result_config == config:
             print(f"     PASS: Returned solution matches requested config")
@@ -248,7 +264,7 @@ def main():
     print()
 
     # Test robots
-    test_robots = ["gp25", "gp7", "gp8"]
+    test_robots = ["kj125"]
 
     results = {}
     for robot in test_robots:

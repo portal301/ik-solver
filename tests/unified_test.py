@@ -225,6 +225,7 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
     frontback = 0 if abs(diff) <= math.pi / 2 + eps else 1
 
     # ELBOW via robot-specific J3 reference
+    # J3 < ref => UP (0), J3 >= ref => DOWN (1)
     robot_lower = robot_name.lower()
     if robot_lower == "kj125":
         j3_ref = math.pi / 2  # 90 deg
@@ -232,7 +233,7 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
         j3_ref = midpoint(IDX_ELBOW)
 
     j3 = normalize_angle(joints[IDX_ELBOW])
-    elbow = 0 if (j3 - j3_ref) >= -eps else 1
+    elbow = 0 if (j3 - j3_ref) < -eps else 1
 
     # WRIST via J5 sign
     j5 = normalize_angle(joints[IDX_WRIST])
