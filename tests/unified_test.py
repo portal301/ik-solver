@@ -198,17 +198,17 @@ def check_joint_limits(joints, limits):
     return len(violations) == 0, violations
 
 def determine_configuration(joints, limits, robot_name, tcp_pose):
-    """Determine configuration using new J2/target yaw for front/back,
-    robot-specific J3 reference for elbow, and |J5| for wrist.
+    """Determine configuration using new J1/target yaw for front/back,
+    robot-specific J3 reference for elbow, and J5 sign for wrist.
 
     Returns (frontback, elbow, wrist):
-      frontback: 0=FRONT, 1=REAR  (J2 vs target direction)
+      frontback: 0=FRONT, 1=REAR  (J1 vs target direction)
       elbow:     0=UP,    1=DOWN  (J3 vs robot-specific ref)
-      wrist:     0=N_FLIP,1=FLIP  (|J5| <= π/2)
+      wrist:     0=N_FLIP,1=FLIP  (J5 >= 0)
     """
     eps = 1e-6
 
-    IDX_J2 = 1
+    IDX_J1 = 0
     IDX_ELBOW = 2
     IDX_WRIST = 4
 
@@ -217,11 +217,11 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
         upper = limits[idx].get('upper', limits[idx].get('max', math.pi))
         return (lower + upper) / 2.0
 
-    # FRONT/BACK via J2 and target yaw (J2=0 aligns +Y)
+    # FRONT/BACK via J1 and target yaw (J1=0 aligns +Y)
     tx, ty = tcp_pose[3], tcp_pose[7]
     yaw_target = math.atan2(tx, ty)  # (x,y) -> yaw
-    j2 = normalize_angle(joints[IDX_J2])
-    diff = normalize_angle(yaw_target - j2)
+    j1 = normalize_angle(joints[IDX_J1])
+    diff = normalize_angle(yaw_target - j1)
     frontback = 0 if abs(diff) <= math.pi / 2 + eps else 1
 
     # ELBOW via robot-specific J3 reference
@@ -234,9 +234,9 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
     j3 = normalize_angle(joints[IDX_ELBOW])
     elbow = 0 if (j3 - j3_ref) >= -eps else 1
 
-    # WRIST via |J5|
+    # WRIST via J5 sign
     j5 = normalize_angle(joints[IDX_WRIST])
-    wrist = 0 if abs(j5) <= math.pi / 2 + eps else 1
+    wrist = 0 if j5 >= -eps else 1
 
     return frontback, elbow, wrist
 
