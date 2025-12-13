@@ -158,10 +158,10 @@ def run_tests(robot_name, tcp_pose):
     # 2) IK with config
     print("--- IKU_SolveIKWithConfig (config-based) ---")
     configs = [
-        (0, 3, 4, "Right-Down-NoFlip"),
-        (1, 3, 4, "Left-Down-NoFlip"),
-        (0, 2, 4, "Right-Up-NoFlip"),
-        (1, 2, 5, "Left-Up-Flip"),
+        (0, 3, 4, "Front-Down-NoFlip"),
+        (1, 3, 4, "Back-Down-NoFlip"),
+        (0, 2, 4, "Front-Up-NoFlip"),
+        (1, 2, 5, "Back-Up-Flip"),
     ]
     for shoulder, elbow, wrist, name in configs:
         print(f"Configuration: {name}")

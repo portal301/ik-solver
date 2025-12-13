@@ -96,11 +96,12 @@ def normalize_angle(angle):
     return angle
 
 
-def extract_config(joints, robot_name='kj125'):
+def extract_config(joints, tcp_pose, robot_name='kj125'):
     """Extract config from joint angles matching C++ matchesConfiguration logic
 
     Args:
         joints: Joint angles [J1, J2, J3, J4, J5, J6]
+        tcp_pose: TCP pose array (12 elements) for yaw calculation
         robot_name: Robot name for robot-specific references (default: kj125)
     """
     eps = 1e-6
@@ -108,8 +109,12 @@ def extract_config(joints, robot_name='kj125'):
     j3 = normalize_angle(joints[2])
     j5 = normalize_angle(joints[4])
 
-    # Shoulder: sign-based (simplified, should use yaw-target but we don't have tcp_pose here)
-    shoulder = 0 if j1 >= -eps else 1  # 0=RIGHT (positive), 1=LEFT (negative)
+    # Shoulder: yaw-target based (matching C++)
+    tx = tcp_pose[3]
+    ty = tcp_pose[7]
+    yaw_target = math.atan2(tx, -ty)  # j1=0 => -Y (KJ125)
+    diff = normalize_angle(yaw_target - j1)
+    shoulder = 0 if abs(diff) < (math.pi / 2.0) else 1  # 0=FRONT, 1=REAR
 
     # Elbow: reference-based (matches C++ getJ3Reference)
     # J3 < ref => UP (0), J3 >= ref => DOWN (1)
@@ -128,7 +133,7 @@ def extract_config(joints, robot_name='kj125'):
 
 def config_to_string(config):
     """Convert config tuple to readable string"""
-    shoulder_str = "RIGHT" if config[0] == 0 else "LEFT"
+    shoulder_str = "FRONT" if config[0] == 0 else "BACK"
     elbow_str = "UP" if config[1] == 0 else "DOWN"
     wrist_str = "N_FLIP" if config[2] == 0 else "FLIP"
     return f"{shoulder_str}-{elbow_str}-{wrist_str}"
@@ -155,8 +160,8 @@ def test_robot_configs(robot_name):
 
     # Test TCP pose
     tcp_pose = np.array([
-        1, 0, 0, 0.5,   # R11, R12, R13, Tx
-        0, 1, 0, 0.0,   # R21, R22, R23, Ty
+        1, 0, 0, -0.5,   # R11, R12, R13, Tx
+        0, 1, 0, -1,   # R21, R22, R23, Ty
         0, 0, 1, 0.3    # R31, R32, R33, Tz
     ], dtype=np.float64)
 
@@ -174,7 +179,7 @@ def test_robot_configs(robot_name):
     print(f"\n[Step 2] Extracting configs from all solutions...")
     configs = {}
     for i, sol in enumerate(solutions):
-        config = extract_config(sol, robot_name)
+        config = extract_config(sol, tcp_pose, robot_name)
         config_str = config_to_string(config)
 
         if config not in configs:
@@ -218,7 +223,7 @@ def test_robot_configs(robot_name):
             continue
 
         # Verify the returned solution matches this config
-        result_config = extract_config(result_joints, robot_name)
+        result_config = extract_config(result_joints, tcp_pose, robot_name)
 
         if result_config == config:
             print(f"     PASS: Returned solution matches requested config")

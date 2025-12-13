@@ -534,7 +534,7 @@ public class SimpleIKTest : MonoBehaviour
 #### 2. 특정 구성(Configuration)으로 IK 계산
 
 ```csharp
-// Right-Down-NoFlip 구성의 솔루션 찾기
+// Down-NoFlip 구성의 솔루션 찾기
 double[] joints;
 bool success = IKFastSolver.SolveIKWithConfig(
     robotName, targetPose,
