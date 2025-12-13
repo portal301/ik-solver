@@ -222,10 +222,10 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
     yaw_target = math.atan2(tx, ty)  # (x,y) -> yaw
     j1 = normalize_angle(joints[IDX_J1])
     diff = normalize_angle(yaw_target - j1)
-    frontback = 0 if abs(diff) <= math.pi / 2 + eps else 1
+    frontback = 0 if abs(diff) <= math.pi / 2 + eps else 1  # 0=RIGHT, 1=LEFT
 
     # ELBOW via robot-specific J3 reference
-    # J3 < ref => UP (0), J3 >= ref => DOWN (1)
+    # J3 < ref => UP (2), J3 >= ref => DOWN (3)
     robot_lower = robot_name.lower()
     if robot_lower == "kj125":
         j3_ref = math.pi / 2  # 90 deg
@@ -233,11 +233,11 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
         j3_ref = midpoint(IDX_ELBOW)
 
     j3 = normalize_angle(joints[IDX_ELBOW])
-    elbow = 0 if (j3 - j3_ref) < -eps else 1
+    elbow = 2 if (j3 - j3_ref) < -eps else 3  # 2=UP, 3=DOWN
 
     # WRIST via J5 sign
     j5 = normalize_angle(joints[IDX_WRIST])
-    wrist = 0 if j5 >= -eps else 1
+    wrist = 4 if j5 >= -eps else 5  # 4=N_FLIP, 5=FLIP
 
     return frontback, elbow, wrist
 

@@ -40,6 +40,7 @@ namespace IKFast
     /// </summary>
     public enum ShoulderConfig
     {
+        NULL = -1,
         RIGHT = 0,
         LEFT = 1
     }
@@ -49,8 +50,9 @@ namespace IKFast
     /// </summary>
     public enum ElbowConfig
     {
-        UP = 0,
-        DOWN = 1
+        NULL = -1,
+        UP = 2,
+        DOWN = 3
     }
 
     /// <summary>
@@ -58,8 +60,9 @@ namespace IKFast
     /// </summary>
     public enum WristConfig
     {
-        N_FLIP = 0,
-        FLIP = 1
+        NULL = -1,
+        N_FLIP = 4,
+        FLIP = 5
     }
 
     /// <summary>
