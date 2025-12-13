@@ -347,11 +347,25 @@ def test_robot(robot_name):
 
                 if not config_matches:
                     status += " [WARN: config mismatch]"
+                    # Print detailed mismatch info
+                    print(f"\n[CONFIG MISMATCH] {robot_name}")
+                    print(f"  Expected: ({expected_frontback}, {expected_elbow}, {expected_wrist})")
+                    print(f"  Got:      ({result_frontback}, {result_elbow}, {result_wrist})")
+                    print(f"  Original J1={normalize_angle(orig_joints[0]):8.5f} rad, J3={normalize_angle(orig_joints[2]):8.5f} rad, J5={normalize_angle(orig_joints[4]):8.5f} rad")
+                    print(f"  Returned J1={normalize_angle(joints[0]):8.5f} rad, J3={normalize_angle(joints[2]):8.5f} rad, J5={normalize_angle(joints[4]):8.5f} rad")
+
                 if not is_valid:
                     status += " [WARN: limit violations]"
+                    # Print detailed limit violation info
+                    print(f"\n[LIMIT VIOLATIONS] {robot_name}")
+                    for v in violations:
+                        print(f"  {v}")
 
                 results['solve_ik_with_config'] = status
         else:
+            # C++ solve_ik_with_config failed, print initial warning
+            print(f"\n[WARN] {robot_name}: C++ solve_ik_with_config({expected_frontback}, {expected_elbow}, {expected_wrist}) returned no solution")
+
             # Fallback: use solve_ik and filter in Python
             sols, ok = ikfast_solver.solve_ik(robot_name, tcp_pose_orig)
             if ok:
@@ -368,6 +382,45 @@ def test_robot(robot_name):
                         found = True
                         break
                 if not found:
+                    # Print detailed debug information for failed config matching
+                    print(f"\n{'='*80}")
+                    print(f"[FAIL] solve_ik_with_config failed for {robot_name}")
+                    print(f"{'='*80}")
+
+                    # Original joints
+                    print(f"\n[Original Joints]")
+                    for i, j in enumerate(orig_joints):
+                        j_norm = normalize_angle(j)
+                        print(f"  J{i} = {j:8.5f} rad ({math.degrees(j):7.2f}°) [normalized: {j_norm:8.5f} rad ({math.degrees(j_norm):7.2f}°)]")
+
+                    # Expected configuration
+                    print(f"\n[Expected Configuration]")
+                    print(f"  frontback = {expected_frontback} ({'FRONT' if expected_frontback == 0 else 'REAR'})")
+                    print(f"  elbow     = {expected_elbow} ({'UP' if expected_elbow == 0 else 'DOWN'})")
+                    print(f"  wrist     = {expected_wrist} ({'N_FLIP' if expected_wrist == 0 else 'FLIP'})")
+
+                    # TCP pose
+                    tx, ty, tz = tcp_pose_orig[3], tcp_pose_orig[7], tcp_pose_orig[11]
+                    print(f"\n[TCP Pose]")
+                    print(f"  Position: x={tx:8.5f}, y={ty:8.5f}, z={tz:8.5f}")
+                    yaw_target = math.atan2(tx, ty)
+                    print(f"  Target yaw: {yaw_target:8.5f} rad ({math.degrees(yaw_target):7.2f}°)")
+
+                    # All solutions from solve_ik
+                    print(f"\n[All Solutions from solve_ik] ({len(sols)} solutions)")
+                    for idx, s in enumerate(sols):
+                        fb, eb, wr = determine_configuration(s, limits, robot_name, tcp_pose_orig)
+                        j1_norm = normalize_angle(s[0])
+                        j3_norm = normalize_angle(s[2])
+                        j5_norm = normalize_angle(s[4])
+
+                        match = "✓ MATCH" if (fb, eb, wr) == (expected_frontback, expected_elbow, expected_wrist) else "✗ no match"
+                        print(f"  Sol {idx}: config=({fb}, {eb}, {wr}) {match}")
+                        print(f"    J1={j1_norm:8.5f} rad ({math.degrees(j1_norm):7.2f}°)")
+                        print(f"    J3={j3_norm:8.5f} rad ({math.degrees(j3_norm):7.2f}°)")
+                        print(f"    J5={j5_norm:8.5f} rad ({math.degrees(j5_norm):7.2f}°)")
+
+                    print(f"{'='*80}\n")
                     results['solve_ik_with_config'] = "FAIL"
             else:
                 results['solve_ik_with_config'] = "FAIL"

@@ -105,6 +105,18 @@ namespace IKFast
         );
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_SolveIKWithConfigEx(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
+            double[] tcp_pose,
+            int shoulder_config,
+            int elbow_config,
+            int wrist_config,
+            double[] current_joints,
+            double[] out_joints,
+            out int is_solvable
+        );
+
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithJoint(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
@@ -438,6 +450,64 @@ namespace IKFast
                 (int)shoulderConfig,
                 (int)elbowConfig,
                 (int)wristConfig,
+                joints,
+                out isSolvable
+            );
+
+            return isSolvable != 0;
+        }
+
+        /// <summary>
+        /// Configuration과 현재 관절값을 고려하여 IK를 풀어 연속성을 보장합니다
+        /// </summary>
+        /// <param name="robotName">로봇 이름 (예: "gp25")</param>
+        /// <param name="targetPose">목표 TCP 자세 (Unity Matrix4x4)</param>
+        /// <param name="shoulderConfig">Shoulder configuration</param>
+        /// <param name="elbowConfig">Elbow configuration</param>
+        /// <param name="wristConfig">Wrist configuration</param>
+        /// <param name="currentJoints">현재 관절 각도 (연속성 유지용)</param>
+        /// <param name="joints">출력 관절 각도 (라디안)</param>
+        /// <returns>솔루션 발견 여부</returns>
+        public static bool SolveIKWithConfig(
+            string robotName,
+            Matrix4x4 targetPose,
+            ShoulderConfig shoulderConfig,
+            ElbowConfig elbowConfig,
+            WristConfig wristConfig,
+            double[] currentJoints,
+            out double[] joints)
+        {
+            joints = null;
+
+            if (!_isInitialized)
+            {
+                Debug.LogError("IKFast not initialized. Call Initialize() first.");
+                return false;
+            }
+
+            int dof = GetNumJoints(robotName);
+            if (dof <= 0)
+            {
+                Debug.LogError($"Invalid robot name: {robotName}");
+                return false;
+            }
+
+            if (currentJoints == null || currentJoints.Length != dof)
+            {
+                Debug.LogError($"currentJoints must be array of length {dof}");
+                return false;
+            }
+
+            double[] tcpPose = MatrixToTcpPose(targetPose);
+            joints = new double[dof];
+            int isSolvable;
+
+            IKFastNative.IKU_SolveIKWithConfigEx(
+                robotName, tcpPose,
+                (int)shoulderConfig,
+                (int)elbowConfig,
+                (int)wristConfig,
+                currentJoints,
                 joints,
                 out isSolvable
             );
