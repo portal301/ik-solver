@@ -118,8 +118,8 @@ def extract_config(joints, tcp_pose, robot_name='kj125'):
 def config_to_string(config):
     """Convert config tuple to readable string"""
     shoulder_str = "RIGHT" if config[0] == 0 else "LEFT"
-    elbow_str = "UP" if config[1] == 0 else "DOWN"
-    wrist_str = "N_FLIP" if config[2] == 0 else "FLIP"
+    elbow_str = "UP" if config[1] == 2 else "DOWN"
+    wrist_str = "N_FLIP" if config[2] == 4 else "FLIP"
     return f"{shoulder_str}-{elbow_str}-{wrist_str}"
 
 
@@ -191,12 +191,12 @@ def main():
         print(f"  {config_str}: {len(sol_list)} solution(s)")
     print("="*80)
 
-    # Test specific config: RIGHT-UP-N_FLIP (0, 0, 0)
+    # Test specific config: RIGHT-UP-N_FLIP (0, 2, 4)
     print("\nTesting Unity's requested config: RIGHT-UP-OUT")
-    print("  Assuming OUT = N_FLIP = 0")
+    print("  Assuming OUT = N_FLIP = 4")
 
     result_joints, is_solvable = ikfast_solver.solve_ik_with_config(
-        "kj125", tcp_pose, 0, 0, 0  # shoulder=0 (RIGHT), elbow=0 (UP), wrist=0 (N_FLIP)
+        "kj125", tcp_pose, 0, 2, 4  # shoulder=0 (RIGHT), elbow=2 (UP), wrist=4 (N_FLIP)
     )
 
     if is_solvable:
@@ -208,7 +208,7 @@ def main():
         j5_deg = math.degrees(normalize_angle(result_joints[4]))
         print(f"  J1={j1_deg:+7.2f}°, J3={j3_deg:+7.2f}°, J5={j5_deg:+7.2f}°")
     else:
-        print("  X No solution found for RIGHT-UP-N_FLIP")
+        print("  X No solution found for FRONT-UP-N_FLIP")
         print("  This matches Unity's error!")
 
     return 0

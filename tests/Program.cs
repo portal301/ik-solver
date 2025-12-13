@@ -73,10 +73,10 @@ namespace TestIKFast
         NULL = -1,
         RIGHT = 0,
         LEFT = 1,
-        UP = 0,
-        DOWN = 1,
-        N_FLIP = 0,
-        FLIP = 1
+        UP = 2,
+        DOWN = 3,
+        N_FLIP = 4,
+        FLIP = 5
     }
 
     // Removed MatrixHelper: examples use direct transformation array for simplicity
@@ -128,8 +128,8 @@ namespace TestIKFast
         /// <param name="robot_name">Robot name (case insensitive)</param>
         /// <param name="tcp_pose">TCP 4x4 transformation matrix (12 elements)</param>
         /// <param name="shoulder_config">Shoulder configuration (0=RIGHT, 1=LEFT)</param>
-        /// <param name="elbow_config">Elbow configuration (0=UP, 1=DOWN)</param>
-        /// <param name="wrist_config">Wrist configuration (0=N_FLIP, 1=FLIP)</param>
+        /// <param name="elbow_config">Elbow configuration (2=UP, 3=DOWN)</param>
+        /// <param name="wrist_config">Wrist configuration (4=N_FLIP, 5=FLIP)</param>
         /// <returns>(joints, is_solvable)</returns>
         public static (double[] joints, bool is_solvable) solve_ik_with_config(
             string robot_name,

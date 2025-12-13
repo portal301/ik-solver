@@ -66,6 +66,7 @@ class IKFastExample
     // Configuration enum
     enum PoseConfig
     {
+        NULL = -1,
         RIGHT = 0, LEFT = 1,
         UP = 2, DOWN = 3,
         N_FLIP = 4, FLIP = 5
@@ -162,10 +163,10 @@ class IKFastExample
         Console.WriteLine(new string('=', 60));
 
         var configs = new[] {
-            (PoseConfig.FRONT, PoseConfig.DOWN, PoseConfig.N_FLIP, "Front-Down-NoFlip"),
-            (PoseConfig.BACK, PoseConfig.DOWN, PoseConfig.N_FLIP, "Back-Down-NoFlip"),
-            (PoseConfig.FRONT, PoseConfig.UP, PoseConfig.N_FLIP, "Front-Up-NoFlip"),
-            (PoseConfig.BACK, PoseConfig.UP, PoseConfig.FLIP, "Back-Up-Flip"),
+            (PoseConfig.RIGHT, PoseConfig.DOWN, PoseConfig.N_FLIP, "Right-Down-NoFlip"),
+            (PoseConfig.LEFT, PoseConfig.DOWN, PoseConfig.N_FLIP, "Left-Down-NoFlip"),
+            (PoseConfig.RIGHT, PoseConfig.UP, PoseConfig.N_FLIP, "Right-Up-NoFlip"),
+            (PoseConfig.LEFT, PoseConfig.UP, PoseConfig.FLIP, "Left-Up-Flip"),
         };
 
         foreach (var (shoulder, elbow, wrist, name) in configs)

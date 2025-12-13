@@ -728,17 +728,17 @@ else:
 목표 TCP 자세와 **Pose.Config**에 맞는 단일 IK 솔루션을 계산합니다.
 
 **Pose.Config (Configuration)**:
-- **Shoulder**: `FRONT` (0) / `BACK` (1) - J1 관절 각도의 부호
-- **Elbow**: `UP` (0) / `DOWN` (1) - J3 관절 각도의 부호
-- **Wrist**: `N_FLIP` (0) / `FLIP` (1) - J5 관절 각도의 부호
+- **Shoulder**: `RIGHT` (0) / `LEFT` (1) - J1 관절 각도의 부호
+- **Elbow**: `UP` (2) / `DOWN` (3) - J3 관절 각도의 부호
+- **Wrist**: `N_FLIP` (4) / `FLIP` (5) - J5 관절 각도의 부호
 
 **C# 선언**:
 ```csharp
 public enum PoseConfig {
     NULL = -1,
     RIGHT = 0, LEFT = 1,
-    UP = 0, DOWN = 1,
-    N_FLIP = 0, FLIP = 1
+    UP = 2, DOWN = 3,
+    N_FLIP = 4, FLIP = 5
 }
 
 public static (double[] joints, bool is_solvable) solve_ik_with_config(
@@ -755,9 +755,9 @@ public static (double[] joints, bool is_solvable) solve_ik_with_config(
 ikfast_solver.solve_ik_with_config(
     robot_name: str,
     tcp_pose: np.ndarray,         # [12]: R11,R12,R13,Tx,R21,R22,R23,Ty,R31,R32,R33,Tz
-    shoulder_config: int,         # 0=FRONT, 1=BACK
-    elbow_config: int,            # 0=UP, 1=DOWN
-    wrist_config: int             # 0=N_FLIP, 1=FLIP
+    shoulder_config: int,         # 0=RIGHT, 1=LEFT
+    elbow_config: int,            # 2=UP, 3=DOWN
+    wrist_config: int             # 4=N_FLIP, 5=FLIP
 ) -> Tuple[np.ndarray, bool]      # (joints, is_solvable)
 ```
 
@@ -767,9 +767,9 @@ ikfast_solver.solve_ik_with_config(
   - **구조**: 3x3 회전 행렬(R) + 3x1 평행이동 벡터(T)
   - 형식: `[R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz]`
 
-- `shoulder_config`: 어깨 구성 (0=FRONT, 1=BACK)
-- `elbow_config`: 팔꿈치 구성 (0=UP, 1=DOWN)
-- `wrist_config`: 손목 구성 (0=N_FLIP, 1=FLIP)
+- `shoulder_config`: 어깨 구성 (0=RIGHT, 1=LEFT)
+- `elbow_config`: 팔꿈치 구성 (2=UP, 3=DOWN)
+- `wrist_config`: 손목 구성 (4=N_FLIP, 5=FLIP)
 
 **반환값**: `((double[][]) solutions, (bool) is_solvable)` 튜플
 - `solutions`: 솔루션 배열 (각 솔루션은 관절 각도 배열)
@@ -782,7 +782,7 @@ double[] tcp_pose = new double[] { 1, 0, 0, 0.5, 0, 1, 0, 0.0, 0, 0, 1, 0.3 };
 
 var (joints, is_solvable) = ikfast_solver.solve_ik_with_config(
     "gp25", tcp_pose,
-    (int)PoseConfig.FRONT,   // shoulder
+    (int)PoseConfig.RIGHT,   // shoulder
     (int)PoseConfig.DOWN,    // elbow
     (int)PoseConfig.N_FLIP   // wrist
 );

@@ -114,7 +114,7 @@ def extract_config(joints, tcp_pose, robot_name='kj125'):
     ty = tcp_pose[7]
     yaw_target = math.atan2(tx, -ty)  # j1=0 => -Y (KJ125)
     diff = normalize_angle(yaw_target - j1)
-    shoulder = 0 if abs(diff) < (math.pi / 2.0) else 1  # 0=FRONT, 1=REAR
+    shoulder = 0 if abs(diff) < (math.pi / 2.0) else 1  # 0=RIGHT, 1=LEFT
 
     # Elbow: reference-based (matches C++ getJ3Reference)
     # J3 < ref => UP (2), J3 >= ref => DOWN (3)
@@ -133,9 +133,9 @@ def extract_config(joints, tcp_pose, robot_name='kj125'):
 
 def config_to_string(config):
     """Convert config tuple to readable string"""
-    shoulder_str = "FRONT" if config[0] == 0 else "BACK"
-    elbow_str = "UP" if config[1] == 0 else "DOWN"
-    wrist_str = "N_FLIP" if config[2] == 0 else "FLIP"
+    shoulder_str = "RIGHT" if config[0] == 0 else "LEFT"
+    elbow_str = "UP" if config[1] == 2 else "DOWN"
+    wrist_str = "N_FLIP" if config[2] == 4 else "FLIP"
     return f"{shoulder_str}-{elbow_str}-{wrist_str}"
 
 
