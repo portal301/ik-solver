@@ -117,3 +117,5 @@ uv.lock
 package.json
 package-lock.json
 src/nul
+src/robots/nul
+nul
