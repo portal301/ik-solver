@@ -202,13 +202,13 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
     robot-specific J3 reference for elbow, and J5 sign for wrist.
 
     Returns (frontback, elbow, wrist):
-      frontback: 0=FRONT, 1=REAR  (J2 vs target direction)
+      frontback: 0=FRONT, 1=REAR  (J1 vs target direction)
       elbow:     0=UP,    1=DOWN  (J3 vs robot-specific ref)
       wrist:     0=N_FLIP,1=FLIP  (J5 >= 0)
     """
     eps = 1e-6
 
-    IDX_J2 = 1
+    IDX_J1 = 0
     IDX_ELBOW = 2
     IDX_WRIST = 4
 
@@ -217,7 +217,7 @@ def determine_configuration(joints, limits, robot_name, tcp_pose):
         upper = limits[idx].get('upper', limits[idx].get('max', math.pi))
         return (lower + upper) / 2.0
 
-    # FRONT/BACK via J2 and target yaw (J2=0 aligns +Y)
+    # FRONT/BACK via J1 and target yaw (J1=0 aligns +Y)
     tx, ty = tcp_pose[3], tcp_pose[7]
     yaw_target = math.atan2(tx, ty)  # (x,y) -> yaw
     j1 = normalize_angle(joints[IDX_J1])
