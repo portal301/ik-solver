@@ -294,7 +294,7 @@ else:
 # 6. 특정 Configuration으로 IK 계산
 joints, is_solvable = ikfast_solver.solve_ik_with_config(
     robot_name, tcp_pose,
-    0,  # RIGHT shoulder
+    0,  # FRONT shoulder
     1,  # DOWN elbow
     0   # N_FLIP wrist
 )
@@ -428,9 +428,9 @@ class IKFastExample
 
         IKU_SolveIKWithConfig(
             robotName, tcpPose,
-            0,  // RIGHT shoulder
-            3,  // DOWN elbow
-            4,  // N_FLIP wrist
+            0,  // FRONT shoulder
+            1,  // DOWN elbow
+            0,  // N_FLIP wrist
             configJoints,
             out isSolvable
         );
@@ -534,11 +534,11 @@ public class SimpleIKTest : MonoBehaviour
 #### 2. 특정 구성(Configuration)으로 IK 계산
 
 ```csharp
-// Down-NoFlip 구성의 솔루션 찾기
+// Front-Down-NoFlip 구성의 솔루션 찾기
 double[] joints;
 bool success = IKFastSolver.SolveIKWithConfig(
     robotName, targetPose,
-    RobotConfig.RIGHT,   // 어깨
+    RobotConfig.FRONT,   // 어깨
     RobotConfig.DOWN,    // 팔꿈치
     RobotConfig.N_FLIP,  // 손목
     out joints
@@ -728,14 +728,14 @@ else:
 목표 TCP 자세와 **Pose.Config**에 맞는 단일 IK 솔루션을 계산합니다.
 
 **Pose.Config (Configuration)**:
-- **Shoulder**: `RIGHT` (0) / `LEFT` (1) - J1 관절 각도의 부호
+- **Shoulder**: `FRONT` (0) / `BACK` (1) - J1 관절 각도의 부호
 - **Elbow**: `UP` (0) / `DOWN` (1) - J3 관절 각도의 부호
 - **Wrist**: `N_FLIP` (0) / `FLIP` (1) - J5 관절 각도의 부호
 
 **C# 선언**:
 ```csharp
 public enum PoseConfig {
-    RIGHT = 0, LEFT = 1,
+    FRONT = 0, BACK = 1,
     UP = 0, DOWN = 1,
     N_FLIP = 0, FLIP = 1
 }
@@ -754,7 +754,7 @@ public static (double[] joints, bool is_solvable) solve_ik_with_config(
 ikfast_solver.solve_ik_with_config(
     robot_name: str,
     tcp_pose: np.ndarray,         # [12]: R11,R12,R13,Tx,R21,R22,R23,Ty,R31,R32,R33,Tz
-    shoulder_config: int,         # 0=RIGHT, 1=LEFT
+    shoulder_config: int,         # 0=FRONT, 1=BACK
     elbow_config: int,            # 0=UP, 1=DOWN
     wrist_config: int             # 0=N_FLIP, 1=FLIP
 ) -> Tuple[np.ndarray, bool]      # (joints, is_solvable)
@@ -766,7 +766,7 @@ ikfast_solver.solve_ik_with_config(
   - **구조**: 3x3 회전 행렬(R) + 3x1 평행이동 벡터(T)
   - 형식: `[R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz]`
 
-- `shoulder_config`: 어깨 구성 (0=RIGHT, 1=LEFT)
+- `shoulder_config`: 어깨 구성 (0=FRONT, 1=BACK)
 - `elbow_config`: 팔꿈치 구성 (0=UP, 1=DOWN)
 - `wrist_config`: 손목 구성 (0=N_FLIP, 1=FLIP)
 
@@ -781,7 +781,7 @@ double[] tcp_pose = new double[] { 1, 0, 0, 0.5, 0, 1, 0, 0.0, 0, 0, 1, 0.3 };
 
 var (joints, is_solvable) = ikfast_solver.solve_ik_with_config(
     "gp25", tcp_pose,
-    (int)PoseConfig.RIGHT,   // shoulder
+    (int)PoseConfig.FRONT,   // shoulder
     (int)PoseConfig.DOWN,    // elbow
     (int)PoseConfig.N_FLIP   // wrist
 );
@@ -802,7 +802,7 @@ tcp_pose = np.array([1, 0, 0, 0.5, 0, 1, 0, 0.0, 0, 0, 1, 0.3], dtype=np.float64
 
 joints, is_solvable = ikfast_solver.solve_ik_with_config(
     "gp25", tcp_pose,
-    0,  # RIGHT
+    0,  # FRONT
     1,  # DOWN
     0   # N_FLIP
 )
@@ -1033,7 +1033,7 @@ python tests\test_python.py
 두 테스트 모두 다음 세 가지 IK 모드를 테스트합니다:
 
 1. **모든 IK 솔루션 계산** (`IKU_SolveIK`): 목표 자세에 대한 모든 가능한 IK 솔루션 반환
-2. **구성 기반 IK** (`IKU_SolveIKWithConfig`): 4가지 구성(Right-Down-NoFlip, Left-Down-NoFlip, Right-Up-NoFlip, Left-Up-Flip)에 대해 특정 구성의 IK 솔루션 계산
+2. **구성 기반 IK** (`IKU_SolveIKWithConfig`): 4가지 구성(Front-Down-NoFlip, Back-Down-NoFlip, Front-Up-NoFlip, Back-Up-Flip)에 대해 특정 구성의 IK 솔루션 계산
 3. **가장 가까운 IK 솔루션** (`IKU_SolveIKWithJoint`): 현재 관절 각도와 가장 가까운 IK 솔루션 계산
 4. **FK 검증**: 각 IK 솔루션을 FK로 역변환하여 정확도 확인 (오차 < 1μm)
 
