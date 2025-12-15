@@ -135,10 +135,10 @@ print("IK 계산 - 특정 Configuration")
 print("=" * 60)
 
 configs = [
-    (0, 1, 0, "Right-Down-NoFlip"),
-    (1, 1, 0, "Left-Down-NoFlip"),
-    (0, 0, 0, "Right-Up-NoFlip"),
-    (1, 0, 1, "Left-Up-Flip"),
+    (0, 1, 0, "Front-Down-NoFlip"),
+    (1, 1, 0, "Back-Down-NoFlip"),
+    (0, 0, 0, "Front-Up-NoFlip"),
+    (1, 0, 1, "Back-Up-Flip"),
 ]
 
 for shoulder, elbow, wrist, name in configs:

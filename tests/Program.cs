@@ -17,30 +17,31 @@ namespace TestIKFast
         private const string DLL_NAME = "IKFastUnity_x64.dll";
 #endif
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPStr)] string robots_dir);
+        // UTF-8 인코딩을 사용하여 한글 경로 지원
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPUTF8Str)] string robots_dir);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPStr)] string robot_name);
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_GetJointLimits(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [Out] double[] out_lower,
             [Out] double[] out_upper,
             int max_joints);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
             [Out] double[] out_solutions,
             int max_solutions
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithConfig(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
             int shoulder_config,
             int elbow_config,
@@ -49,18 +50,18 @@ namespace TestIKFast
             out int out_is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithJoint(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] tcp_pose,  // [12]: R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz
             [In] double[] current_joints,
             [Out] double[] out_joints,
             out int out_is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_ComputeFK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             [In] double[] joints,
             [Out] double[] out_eetrans,
             [Out] double[] out_eerot
@@ -69,12 +70,13 @@ namespace TestIKFast
 
     public enum PoseConfig
     {
+        NULL = -1,
         RIGHT = 0,
         LEFT = 1,
-        UP = 0,
-        DOWN = 1,
-        N_FLIP = 0,
-        FLIP = 1
+        UP = 2,
+        DOWN = 3,
+        N_FLIP = 4,
+        FLIP = 5
     }
 
     // Removed MatrixHelper: examples use direct transformation array for simplicity
@@ -126,8 +128,8 @@ namespace TestIKFast
         /// <param name="robot_name">Robot name (case insensitive)</param>
         /// <param name="tcp_pose">TCP 4x4 transformation matrix (12 elements)</param>
         /// <param name="shoulder_config">Shoulder configuration (0=RIGHT, 1=LEFT)</param>
-        /// <param name="elbow_config">Elbow configuration (0=UP, 1=DOWN)</param>
-        /// <param name="wrist_config">Wrist configuration (0=N_FLIP, 1=FLIP)</param>
+        /// <param name="elbow_config">Elbow configuration (2=UP, 3=DOWN)</param>
+        /// <param name="wrist_config">Wrist configuration (4=N_FLIP, 5=FLIP)</param>
         /// <returns>(joints, is_solvable)</returns>
         public static (double[] joints, bool is_solvable) solve_ik_with_config(
             string robot_name,

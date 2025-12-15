@@ -36,19 +36,31 @@ using UnityEngine;
 namespace IKFast
 {
     /// <summary>
-    /// IKFast 로봇 구성 (Shoulder, Elbow, Wrist)
+    /// Shoulder configuration
     /// </summary>
-    public enum RobotConfig
+    public enum ShoulderConfig
     {
-        // Shoulder
+        NULL = -1,
         RIGHT = 0,
-        LEFT = 1,
+        LEFT = 1
+    }
 
-        // Elbow
+    /// <summary>
+    /// Elbow configuration
+    /// </summary>
+    public enum ElbowConfig
+    {
+        NULL = -1,
         UP = 2,
-        DOWN = 3,
+        DOWN = 3
+    }
 
-        // Wrist
+    /// <summary>
+    /// Wrist configuration
+    /// </summary>
+    public enum WristConfig
+    {
+        NULL = -1,
         N_FLIP = 4,
         FLIP = 5
     }
@@ -60,31 +72,33 @@ namespace IKFast
     {
         private const string DLL_NAME = "IKFastUnity_x64";
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPStr)] string robots_dir);
+        // UTF-8 인코딩을 사용하여 한글 경로 지원
+        // Unity 2021.2+ 지원: UnmanagedType.LPUTF8Str
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_Init([MarshalAs(UnmanagedType.LPUTF8Str)] string robots_dir);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPStr)] string robot_name);
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_GetNumJoints([MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name);
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_GetJointLimits(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] out_lower,
             double[] out_upper,
             int max_joints
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
             double[] out_solutions,
             int max_solutions
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithConfig(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
             int shoulder_config,
             int elbow_config,
@@ -93,18 +107,30 @@ namespace IKFast
             out int is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int IKU_SolveIKWithConfigEx(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
+            double[] tcp_pose,
+            int shoulder_config,
+            int elbow_config,
+            int wrist_config,
+            double[] current_joints,
+            double[] out_joints,
+            out int is_solvable
+        );
+
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_SolveIKWithJoint(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] tcp_pose,
             double[] current_joints,
             double[] out_joints,
             out int is_solvable
         );
 
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IKU_ComputeFK(
-            [MarshalAs(UnmanagedType.LPStr)] string robot_name,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string robot_name,
             double[] joints,
             double[] out_eetrans,
             double[] out_eerot
@@ -184,8 +210,8 @@ namespace IKFast
         }
 
         /// <summary>
-        /// robots 디렉토리를 재귀적으로 찾습니다.
-        /// 우선순위: 사용자 지정 경로 > Assets/Plugins/x86_64 > Assets/Plugins > Assets > 프로젝트 루트
+        /// robots 디렉토리를 찾습니다.
+        /// 우선순위: 사용자 지정 경로 > IKFastUnity DLL과 같은 위치 > 재귀 검색
         /// </summary>
         private static string ResolveRobotsDirectory(string robotsDir)
         {
@@ -195,46 +221,109 @@ namespace IKFast
                 return Path.GetFullPath(robotsDir);
             }
 
-            // 2) 검색 루트 목록 구성
-            string assetsPath = Application.dataPath; // .../Project/Assets
-            string pluginsPath = Path.Combine(assetsPath, "Plugins");
-            string x86Path = Path.Combine(pluginsPath, "x86_64");
-            string projectRoot = Path.GetFullPath(Path.Combine(assetsPath, ".."));
-
-            string[] searchRoots = new[]
+            // 2) IKFastUnity_x64.dll 위치를 기준으로 robots 폴더 찾기
+            // Unity는 DLL을 Plugins 폴더에 배치하며, robots 폴더도 같은 위치에 있어야 함
+            string dllDirectory = FindIKFastUnityDllDirectory();
+            if (!string.IsNullOrEmpty(dllDirectory))
             {
-                x86Path,
-                pluginsPath,
-                assetsPath,
-                projectRoot
+                string robotsInDllDir = Path.Combine(dllDirectory, "robots");
+                if (Directory.Exists(robotsInDllDir) && IsValidRobotsDirectory(robotsInDllDir))
+                {
+                    Debug.Log($"Found robots directory next to DLL: {robotsInDllDir}");
+                    return Path.GetFullPath(robotsInDllDir);
+                }
+            }
+
+            // 3) 표준 경로에서 찾기
+            string assetsPath = Application.dataPath;
+            string[] standardPaths = new[]
+            {
+                Path.Combine(assetsPath, "Plugins", "x86_64", "robots"),  // 에디터/빌드 표준 경로
+                Path.Combine(assetsPath, "Plugins", "robots"),
             };
 
-            foreach (string root in searchRoots)
+            foreach (string path in standardPaths)
             {
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-                    continue;
+                if (Directory.Exists(path) && IsValidRobotsDirectory(path))
+                {
+                    Debug.Log($"Found robots directory at standard path: {path}");
+                    return Path.GetFullPath(path);
+                }
+            }
 
+            // 4) 재귀 검색 (fallback)
+            string pluginsPath = Path.Combine(assetsPath, "Plugins");
+            if (Directory.Exists(pluginsPath))
+            {
                 try
                 {
-                    foreach (string dir in Directory.EnumerateDirectories(root, "robots", SearchOption.AllDirectories))
+                    foreach (string dir in Directory.EnumerateDirectories(pluginsPath, "robots", SearchOption.AllDirectories))
                     {
-                        // robots 폴더 안에 *_ikfast.dll 이나 liblapack.dll 등이 존재하면 유효하다고 간주
-                        bool hasIkfastDll = Directory.EnumerateFiles(dir, "*_ikfast.dll", SearchOption.AllDirectories).GetEnumerator().MoveNext();
-                        bool hasLapack = File.Exists(Path.Combine(dir, "liblapack.dll"));
-                        if (hasIkfastDll || hasLapack)
+                        if (IsValidRobotsDirectory(dir))
                         {
+                            Debug.Log($"Found robots directory via recursive search: {dir}");
                             return Path.GetFullPath(dir);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"Robots directory search skipped at {root}: {ex.Message}");
+                    Debug.LogWarning($"Robots directory recursive search failed: {ex.Message}");
                 }
             }
 
             // 찾지 못한 경우
             return null;
+        }
+
+        /// <summary>
+        /// IKFastUnity_x64.dll이 있는 디렉토리를 찾습니다.
+        /// </summary>
+        private static string FindIKFastUnityDllDirectory()
+        {
+            string assetsPath = Application.dataPath;
+
+            // 빌드/에디터 모두 Plugins/x86_64에 위치
+            string[] searchPaths = new[]
+            {
+                Path.Combine(assetsPath, "Plugins", "x86_64"),
+                Path.Combine(assetsPath, "Plugins"),
+            };
+
+            foreach (string path in searchPaths)
+            {
+                if (Directory.Exists(path))
+                {
+                    string dllPath = Path.Combine(path, "IKFastUnity_x64.dll");
+                    if (File.Exists(dllPath))
+                    {
+                        return path;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// robots 디렉토리가 유효한지 검사합니다 (IKFast DLL 또는 의존성 DLL 포함 여부)
+        /// </summary>
+        private static bool IsValidRobotsDirectory(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                return false;
+
+            try
+            {
+                // robots 폴더 안에 *_ikfast.dll 이나 liblapack.dll 등이 존재하면 유효
+                bool hasIkfastDll = Directory.EnumerateFiles(dir, "*_ikfast.dll", SearchOption.AllDirectories).Any();
+                bool hasLapack = File.Exists(Path.Combine(dir, "liblapack.dll"));
+                return hasIkfastDll || hasLapack;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -335,9 +424,9 @@ namespace IKFast
         public static bool SolveIKWithConfig(
             string robotName,
             Matrix4x4 targetPose,
-            RobotConfig shoulderConfig,
-            RobotConfig elbowConfig,
-            RobotConfig wristConfig,
+            ShoulderConfig shoulderConfig,
+            ElbowConfig elbowConfig,
+            WristConfig wristConfig,
             out double[] joints)
         {
             joints = null;
@@ -364,6 +453,64 @@ namespace IKFast
                 (int)shoulderConfig,
                 (int)elbowConfig,
                 (int)wristConfig,
+                joints,
+                out isSolvable
+            );
+
+            return isSolvable != 0;
+        }
+
+        /// <summary>
+        /// Configuration과 현재 관절값을 고려하여 IK를 풀어 연속성을 보장합니다
+        /// </summary>
+        /// <param name="robotName">로봇 이름 (예: "gp25")</param>
+        /// <param name="targetPose">목표 TCP 자세 (Unity Matrix4x4)</param>
+        /// <param name="shoulderConfig">Shoulder configuration</param>
+        /// <param name="elbowConfig">Elbow configuration</param>
+        /// <param name="wristConfig">Wrist configuration</param>
+        /// <param name="currentJoints">현재 관절 각도 (연속성 유지용)</param>
+        /// <param name="joints">출력 관절 각도 (라디안)</param>
+        /// <returns>솔루션 발견 여부</returns>
+        public static bool SolveIKWithConfig(
+            string robotName,
+            Matrix4x4 targetPose,
+            ShoulderConfig shoulderConfig,
+            ElbowConfig elbowConfig,
+            WristConfig wristConfig,
+            double[] currentJoints,
+            out double[] joints)
+        {
+            joints = null;
+
+            if (!_isInitialized)
+            {
+                Debug.LogError("IKFast not initialized. Call Initialize() first.");
+                return false;
+            }
+
+            int dof = GetNumJoints(robotName);
+            if (dof <= 0)
+            {
+                Debug.LogError($"Invalid robot name: {robotName}");
+                return false;
+            }
+
+            if (currentJoints == null || currentJoints.Length != dof)
+            {
+                Debug.LogError($"currentJoints must be array of length {dof}");
+                return false;
+            }
+
+            double[] tcpPose = MatrixToTcpPose(targetPose);
+            joints = new double[dof];
+            int isSolvable;
+
+            IKFastNative.IKU_SolveIKWithConfigEx(
+                robotName, tcpPose,
+                (int)shoulderConfig,
+                (int)elbowConfig,
+                (int)wristConfig,
+                currentJoints,
                 joints,
                 out isSolvable
             );

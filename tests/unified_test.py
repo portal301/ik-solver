@@ -160,6 +160,87 @@ def vec_norm(v):
 def vec_diff(v1, v2):
     return [v1[i] - v2[i] for i in range(len(v1))]
 
+def normalize_angle(angle):
+    """Normalize angle to [-pi, pi]"""
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+def check_joint_limits(joints, limits):
+    """Check if all joints are within their limits.
+    Returns (is_valid, violations_list)"""
+    violations = []
+    for i, angle in enumerate(joints):
+        lower = limits[i].get('lower', limits[i].get('min', -math.pi))
+        upper = limits[i].get('upper', limits[i].get('max', math.pi))
+
+        # Normalize for comparison
+        angle_norm = normalize_angle(angle)
+
+        # Handle wraparound limits (e.g., [-π, π])
+        if lower <= angle_norm <= upper:
+            continue
+
+        # Check if violation is due to numerical precision
+        eps = 1e-5
+        if lower - eps <= angle_norm <= upper + eps:
+            continue
+
+        violations.append({
+            'joint': i,
+            'value': angle_norm,
+            'lower': lower,
+            'upper': upper
+        })
+
+    return len(violations) == 0, violations
+
+def determine_configuration(joints, limits, robot_name, tcp_pose):
+    """Determine configuration using new J1/target yaw for front/back,
+    robot-specific J3 reference for elbow, and J5 sign for wrist.
+
+    Returns (frontback, elbow, wrist):
+      frontback: 0=FRONT, 1=REAR  (J1 vs target direction)
+      elbow:     0=UP,    1=DOWN  (J3 vs robot-specific ref)
+      wrist:     0=N_FLIP,1=FLIP  (J5 >= 0)
+    """
+    eps = 1e-6
+
+    IDX_J1 = 0
+    IDX_ELBOW = 2
+    IDX_WRIST = 4
+
+    def midpoint(idx):
+        lower = limits[idx].get('lower', limits[idx].get('min', -math.pi))
+        upper = limits[idx].get('upper', limits[idx].get('max', math.pi))
+        return (lower + upper) / 2.0
+
+    # FRONT/BACK via J1 and target yaw (J1=0 aligns +Y)
+    tx, ty = tcp_pose[3], tcp_pose[7]
+    yaw_target = math.atan2(tx, ty)  # (x,y) -> yaw
+    j1 = normalize_angle(joints[IDX_J1])
+    diff = normalize_angle(yaw_target - j1)
+    frontback = 0 if abs(diff) <= math.pi / 2 + eps else 1  # 0=RIGHT, 1=LEFT
+
+    # ELBOW via robot-specific J3 reference
+    # J3 < ref => UP (2), J3 >= ref => DOWN (3)
+    robot_lower = robot_name.lower()
+    if robot_lower == "kj125":
+        j3_ref = math.pi / 2  # 90 deg
+    else:
+        j3_ref = midpoint(IDX_ELBOW)
+
+    j3 = normalize_angle(joints[IDX_ELBOW])
+    elbow = 2 if (j3 - j3_ref) < -eps else 3  # 2=UP, 3=DOWN
+
+    # WRIST via J5 sign
+    j5 = normalize_angle(joints[IDX_WRIST])
+    wrist = 4 if j5 >= -eps else 5  # 4=N_FLIP, 5=FLIP
+
+    return frontback, elbow, wrist
+
 def test_robot(robot_name):
     dof = ikfast_solver.get_num_joints(robot_name)
     if dof <= 0:
@@ -215,9 +296,19 @@ def test_robot(robot_name):
     try:
         solutions, is_solvable = ikfast_solver.solve_ik(robot_name, tcp_pose_orig)
         if is_solvable and len(solutions) > 0:
+            # Validate joint limits for all solutions
+            limit_violations = 0
+            for sol in solutions:
+                is_valid, violations = check_joint_limits(sol, limits)
+                if not is_valid:
+                    limit_violations += 1
+
             tcp_error, _ = compare_ik_solutions_via_tcp(solutions)
             if tcp_error is not None:
-                results['solve_ik'] = f"OK ({len(solutions):02d} sol, err={tcp_error:.6f})"
+                status = f"OK ({len(solutions):02d} sol, err={tcp_error:.6f})"
+                if limit_violations > 0:
+                    status += f" [WARN: {limit_violations} limit violations]"
+                results['solve_ik'] = status
             else:
                 results['solve_ik'] = "FAIL (TCP comparison error)"
         else:
@@ -226,51 +317,63 @@ def test_robot(robot_name):
         results['solve_ik'] = "ERROR"
     
     try:
-        # Determine the configuration of the original joints
-        # Normalize angles to [-pi, pi]
-        def normalize_angle(angle):
-            while angle > math.pi:
-                angle -= 2.0 * math.pi
-            while angle < -math.pi:
-                angle += 2.0 * math.pi
-            return angle
-
-        j0_norm = normalize_angle(orig_joints[0])
-        j2_norm = normalize_angle(orig_joints[2])
-        j4_norm = normalize_angle(orig_joints[4])
-
-        eps = 1e-6
-        # Config: 0 = positive, 1 = negative (with epsilon tolerance)
-        expected_shoulder = 0 if j0_norm > -eps else 1
-        expected_elbow = 0 if j2_norm > -eps else 1
-        expected_wrist = 0 if j4_norm > -eps else 1
+        # Determine the configuration of the original joints using new J2/J3/J5 logic
+        expected_frontback, expected_elbow, expected_wrist = determine_configuration(
+            orig_joints, limits, robot_name, tcp_pose_orig)
 
         # First, try the native C++ config filter
         joints, is_solvable = ikfast_solver.solve_ik_with_config(
-            robot_name, tcp_pose_orig, expected_shoulder, expected_elbow, expected_wrist
+            robot_name, tcp_pose_orig, expected_frontback, expected_elbow, expected_wrist
         )
 
         if is_solvable:
+            # Validate joint limits
+            is_valid, violations = check_joint_limits(joints, limits)
+
+            # Verify configuration matches
+            result_frontback, result_elbow, result_wrist = determine_configuration(
+                joints, limits, robot_name, tcp_pose_orig)
+            config_matches = (
+                (result_frontback, result_elbow, result_wrist) ==
+                (expected_frontback, expected_elbow, expected_wrist)
+            )
+
             fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
             if not fk_ok:
                 results['solve_ik_with_config'] = "FK failed"
             else:
                 tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
                 tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
-                results['solve_ik_with_config'] = f"OK (err={tcp_error:.6f})"
+                status = f"OK (err={tcp_error:.6f})"
+
+                if not config_matches:
+                    status += " [WARN: config mismatch]"
+                    # Print detailed mismatch info
+                    print(f"\n[CONFIG MISMATCH] {robot_name}")
+                    print(f"  Expected: ({expected_frontback}, {expected_elbow}, {expected_wrist})")
+                    print(f"  Got:      ({result_frontback}, {result_elbow}, {result_wrist})")
+                    print(f"  Original J1={normalize_angle(orig_joints[0]):8.5f} rad, J3={normalize_angle(orig_joints[2]):8.5f} rad, J5={normalize_angle(orig_joints[4]):8.5f} rad")
+                    print(f"  Returned J1={normalize_angle(joints[0]):8.5f} rad, J3={normalize_angle(joints[2]):8.5f} rad, J5={normalize_angle(joints[4]):8.5f} rad")
+
+                if not is_valid:
+                    status += " [WARN: limit violations]"
+                    # Print detailed limit violation info
+                    print(f"\n[LIMIT VIOLATIONS] {robot_name}")
+                    for v in violations:
+                        print(f"  {v}")
+
+                results['solve_ik_with_config'] = status
         else:
-            # Fallback: use solve_ik and filter in Python to avoid platform differences
+            # C++ solve_ik_with_config failed, print initial warning
+            print(f"\n[WARN] {robot_name}: C++ solve_ik_with_config({expected_frontback}, {expected_elbow}, {expected_wrist}) returned no solution")
+
+            # Fallback: use solve_ik and filter in Python
             sols, ok = ikfast_solver.solve_ik(robot_name, tcp_pose_orig)
             if ok:
                 found = False
                 for s in sols:
-                    j0 = normalize_angle(s[0])
-                    j2 = normalize_angle(s[2])
-                    j4 = normalize_angle(s[4])
-                    shoulder = 0 if j0 > -eps else 1
-                    elbow = 0 if j2 > -eps else 1
-                    wrist = 0 if j4 > -eps else 1
-                    if (shoulder, elbow, wrist) == (expected_shoulder, expected_elbow, expected_wrist):
+                    fb, eb, wr = determine_configuration(s, limits, robot_name, tcp_pose_orig)
+                    if (fb, eb, wr) == (expected_frontback, expected_elbow, expected_wrist):
                         fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, s)
                         if not fk_ok:
                             continue
@@ -280,6 +383,45 @@ def test_robot(robot_name):
                         found = True
                         break
                 if not found:
+                    # Print detailed debug information for failed config matching
+                    print(f"\n{'='*80}")
+                    print(f"[FAIL] solve_ik_with_config failed for {robot_name}")
+                    print(f"{'='*80}")
+
+                    # Original joints
+                    print(f"\n[Original Joints]")
+                    for i, j in enumerate(orig_joints):
+                        j_norm = normalize_angle(j)
+                        print(f"  J{i} = {j:8.5f} rad ({math.degrees(j):7.2f}°) [normalized: {j_norm:8.5f} rad ({math.degrees(j_norm):7.2f}°)]")
+
+                    # Expected configuration
+                    print(f"\n[Expected Configuration]")
+                    print(f"  frontback = {expected_frontback} ({'FRONT' if expected_frontback == 0 else 'REAR'})")
+                    print(f"  elbow     = {expected_elbow} ({'UP' if expected_elbow == 0 else 'DOWN'})")
+                    print(f"  wrist     = {expected_wrist} ({'N_FLIP' if expected_wrist == 0 else 'FLIP'})")
+
+                    # TCP pose
+                    tx, ty, tz = tcp_pose_orig[3], tcp_pose_orig[7], tcp_pose_orig[11]
+                    print(f"\n[TCP Pose]")
+                    print(f"  Position: x={tx:8.5f}, y={ty:8.5f}, z={tz:8.5f}")
+                    yaw_target = math.atan2(tx, ty)
+                    print(f"  Target yaw: {yaw_target:8.5f} rad ({math.degrees(yaw_target):7.2f}°)")
+
+                    # All solutions from solve_ik
+                    print(f"\n[All Solutions from solve_ik] ({len(sols)} solutions)")
+                    for idx, s in enumerate(sols):
+                        fb, eb, wr = determine_configuration(s, limits, robot_name, tcp_pose_orig)
+                        j1_norm = normalize_angle(s[0])
+                        j3_norm = normalize_angle(s[2])
+                        j5_norm = normalize_angle(s[4])
+
+                        match = "✓ MATCH" if (fb, eb, wr) == (expected_frontback, expected_elbow, expected_wrist) else "✗ no match"
+                        print(f"  Sol {idx}: config=({fb}, {eb}, {wr}) {match}")
+                        print(f"    J1={j1_norm:8.5f} rad ({math.degrees(j1_norm):7.2f}°)")
+                        print(f"    J3={j3_norm:8.5f} rad ({math.degrees(j3_norm):7.2f}°)")
+                        print(f"    J5={j5_norm:8.5f} rad ({math.degrees(j5_norm):7.2f}°)")
+
+                    print(f"{'='*80}\n")
                     results['solve_ik_with_config'] = "FAIL"
             else:
                 results['solve_ik_with_config'] = "FAIL"
@@ -292,6 +434,9 @@ def test_robot(robot_name):
             robot_name, tcp_pose_orig, current
         )
         if is_solvable:
+            # Validate joint limits
+            is_valid, _ = check_joint_limits(joints, limits)
+
             # Convert IK result back to TCP and compare
             fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, joints)
             if not fk_ok:
@@ -299,12 +444,15 @@ def test_robot(robot_name):
             else:
                 tcp_pose_ik = tcp_to_matrix(fk_pos, fk_rot)
                 tcp_error = vec_norm(vec_diff(tcp_pose_ik, tcp_pose_orig))
-                results['solve_ik_with_joint'] = f"OK (err={tcp_error:.6f})"
+                status = f"OK (err={tcp_error:.6f})"
+                if not is_valid:
+                    status += " [WARN: limit violations]"
+                results['solve_ik_with_joint'] = status
         else:
             results['solve_ik_with_joint'] = "FAIL"
     except ValueError:
         results['solve_ik_with_joint'] = "ERROR"
-    
+
     return results
 
 def main():
@@ -315,7 +463,7 @@ def main():
     
     print(f"[DEBUG] ikfast_solver module: {ikfast_solver.__file__}")
     print(f"[DEBUG] ROBOTS_DIR: {ROBOTS_DIR}")
-    print(f"[DEBUG] Calling load_ik_plugins...")
+    print("[DEBUG] Calling load_ik_plugins...")
     
     try:
         ikfast_solver.load_ik_plugins(ROBOTS_DIR)
@@ -323,10 +471,8 @@ def main():
     except ValueError as e:
         print(f"[FAIL] Load plugins: {e}")
         return
-    except Exception as e:
-        print(f"[FAIL] Load plugins (unexpected error): {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+    except RuntimeError as e:
+        print(f"[FAIL] Load plugins (runtime error): {e}")
         return
     
     robots = discover_robots()
