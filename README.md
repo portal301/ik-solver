@@ -429,8 +429,8 @@ class IKFastExample
         IKU_SolveIKWithConfig(
             robotName, tcpPose,
             0,  // FRONT shoulder
-            1,  // DOWN elbow
-            0,  // N_FLIP wrist
+            3,  // DOWN elbow
+            4,  // N_FLIP wrist
             configJoints,
             out isSolvable
         );
@@ -804,8 +804,8 @@ tcp_pose = np.array([1, 0, 0, 0.5, 0, 1, 0, 0.0, 0, 0, 1, 0.3], dtype=np.float64
 joints, is_solvable = ikfast_solver.solve_ik_with_config(
     "gp25", tcp_pose,
     0,  # FRONT
-    1,  # DOWN
-    0   # N_FLIP
+    3,  # DOWN
+    4   # N_FLIP
 )
 
 if is_solvable:
@@ -1255,10 +1255,7 @@ Result: 13/13 robots passed all tests
 
 ---
 
-**최종 업데이트**: 2025-12-08
-
-**지원 로봇**: 13개 (Kawasaki 2개, Yaskawa 11개)
-**상태**: Production Ready ✅
+**최종 업데이트**: 2025-12-15
 
 **로봇의 IK 추가는 순차적으로 이루어집니다. 급하게 필요한 모델이 있으면 정태준에게 문의주세요**
 
