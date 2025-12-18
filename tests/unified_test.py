@@ -455,6 +455,89 @@ def test_robot(robot_name):
 
     return results
 
+def test_zero_joint_tcp(robot_name):
+    """Test to show TCP position when all joints are zero,
+    and test IK with same translation but different rotations"""
+    
+    print("\n" + "=" * 80)
+    print(f"Zero Joint TCP Test - {robot_name}")
+    print("=" * 80)
+    
+    dof = ikfast_solver.get_num_joints(robot_name)
+    if dof <= 0:
+        print("  [SKIP] Invalid DOF")
+        return
+    
+    # Step 1: All joints = 0
+    zero_joints = [0.0] * dof
+    print(f"\n[Step 1] All joints set to zero:")
+    for i, j in enumerate(zero_joints):
+        print(f"  J{i} = {j:.5f} rad ({math.degrees(j):.2f}°)")
+    
+    # Step 2: FK with zero joints
+    fk_pos, fk_rot, fk_ok = ikfast_solver.compute_fk(robot_name, zero_joints)
+    if not fk_ok:
+        print("  [FAIL] FK failed for zero joints")
+        return
+    
+    print(f"\n[Step 2] TCP position at zero joints (FK):")
+    print(f"  Position: x={fk_pos[0]:8.5f}, y={fk_pos[1]:8.5f}, z={fk_pos[2]:8.5f}")
+    print(f"  Rotation matrix:")
+    import numpy as np
+    rot_matrix = np.array(fk_rot).reshape(3, 3)
+    for i in range(3):
+        print(f"    [{rot_matrix[i][0]:8.5f}, {rot_matrix[i][1]:8.5f}, {rot_matrix[i][2]:8.5f}]")
+    
+    # Step 3: Test IK with same translation, different rotations
+    test_rotations = [
+        ("Identity (0,0,0)", [[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+        ("90° around Z", [[0, -1, 0], [1, 0, 0], [0, 0, 1]]),
+        ("90° around Y", [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]),
+        ("90° around X", [[1, 0, 0], [0, 0, -1], [0, 1, 0]]),
+        ("Original from FK", rot_matrix.tolist()),
+    ]
+    
+    print(f"\n[Step 3] IK tests with same translation, different rotations:")
+    print(f"  Using translation: x={fk_pos[0]:8.5f}, y={fk_pos[1]:8.5f}, z={fk_pos[2]:8.5f}\n")
+    
+    for rot_name, rot in test_rotations:
+        print(f"  Testing rotation: {rot_name}")
+        tcp_matrix = tcp_to_matrix(fk_pos, rot)
+        
+        try:
+            solutions, is_solvable = ikfast_solver.solve_ik(robot_name, tcp_matrix)
+            if is_solvable and len(solutions) > 0:
+                print(f"    ✓ Solvable - Found {len(solutions)} solution(s)")
+                
+                # Show first solution in detail
+                joints = solutions[0]
+                print(f"    First solution joints:")
+                for i, j in enumerate(joints):
+                    j_norm = normalize_angle(j)
+                    print(f"      J{i} = {j:8.5f} rad ({math.degrees(j):7.2f}°) [normalized: {j_norm:8.5f} rad ({math.degrees(j_norm):7.2f}°)]")
+                
+                # Verify with FK
+                fk_pos_verify, fk_rot_verify, fk_ok_verify = ikfast_solver.compute_fk(robot_name, joints)
+                if fk_ok_verify:
+                    tcp_verify = tcp_to_matrix(fk_pos_verify, fk_rot_verify)
+                    tcp_error = vec_norm(vec_diff(tcp_verify, tcp_matrix))
+                    print(f"    FK verification error: {tcp_error:.9f}")
+                
+                # Show all solutions briefly
+                if len(solutions) > 1:
+                    print(f"    All {len(solutions)} solutions (J0, J1, J2, J3, J4, J5):")
+                    for idx, sol in enumerate(solutions):
+                        joints_str = ", ".join([f"{normalize_angle(j):7.3f}" for j in sol])
+                        print(f"      Sol {idx}: [{joints_str}]")
+            else:
+                print(f"    ✗ No solution found")
+        except Exception as e:
+            print(f"    ✗ Error: {e}")
+        
+        print()
+    
+    print("=" * 80)
+
 def main():
     print("=" * 80)
     print("IKFast Unified Test - All Robots, All IK Functions (Python)")
@@ -504,6 +587,15 @@ def main():
     print("-" * 80)
     print(f"Result: {passed}/{len(robots)} robots passed all tests")
     print("=" * 80)
+    
+    # Run zero joint TCP test for specific robots (or all)
+    print("\n\n")
+    test_robots = ['kj125']  # Add more robot names as needed, or use 'robots' to test all
+    for robot in test_robots:
+        if robot in robots:
+            test_zero_joint_tcp(robot)
+        else:
+            print(f"\n[SKIP] Robot '{robot}' not found in discovered robots")
 
 if __name__ == "__main__":
     main()
