@@ -65,14 +65,7 @@ CTestTestfile.cmake
 Makefile
 
 # Dev-only scripts and configs (exclude from user distribution)
-*.bat
 *.gitkeep
-setup.py
-check_module.py
-quick_test.py
-CMakeLists.txt
-BUILD.md
-cleanup_build.ps1
 
 # C# project files (use dotnet run instead)
 *.csproj
@@ -80,14 +73,9 @@ cleanup_build.ps1
 *.sln
 
 # Test files (keep only tests/ directory versions)
-/test_python.py
 
 # Source code (exclude from distribution - keep only binaries)
-src/*.cpp
-src/*.hpp
 src/robots/*.cpp
-include/*.h
-include/*.hpp
 
 # Additional build temp directories
 src/**/build/
@@ -116,6 +104,5 @@ uv.lock
 /node_modules
 package.json
 package-lock.json
-src/nul
-src/robots/nul
 nul
+/.cache
