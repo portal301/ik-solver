@@ -10,65 +10,69 @@
 #include <vector>
 #include <array>
 #include <limits>
-#include <memory>
-#include "ikfast.h"
+#include <locale>
+#include <codecvt>
 
 #ifndef M_PI
-#define M_PI 3.14159265358979323846  // NOLINT(cppcoreguidelines-macro-usage)
+#define M_PI 3.14159265358979323846
 #endif
 
 namespace fs = std::filesystem;
 
-namespace ikcore { // Entire code is within ikcore namespace
+namespace ikcore {
 
 using IkReal = double;
 
-/**
- * Robot IK plugin data structure
- * @struct RobotIkPlugin
- */
+// UTF-8 to UTF-16 conversion helper for Korean/Unicode paths
+static std::wstring utf8_to_wstring(const std::string& utf8_str) {
+    if (utf8_str.empty()) return std::wstring();
+    
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
+    if (size_needed <= 0) return std::wstring();
+    
+    std::wstring wstr(size_needed - 1, 0);  // -1 to exclude null terminator
+    MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, &wstr[0], size_needed);
+    return wstr;
+}
+
+
+
+// Forward declarations
+static void extractTransformFromMatrix(const IkReal* matrix_12, IkReal* eetrans, IkReal* eerot);
+
 struct RobotIkPlugin {
-    HMODULE dll = nullptr; /// Handle to loaded DLL
-    ikfast::IkFastFunctions<IkReal> fns; /// Function pointers
+    HMODULE dll = nullptr;
+    ikfast::IkFastFunctions<IkReal> fns{};
     int num_joints = 0;
     int num_free = 0;
-    int ikreal_size = sizeof(IkReal); /// size reported by plugin
+    int ikreal_size = sizeof(IkReal); // size reported by plugin
     std::string name;
-    std::vector<JointLimit> joint_limits;  /// Joint limits loaded from JSON
+    std::vector<JointLimit> joint_limits;  // Joint limits loaded from JSON
 };
 
-/// Global map of loaded IK plugins (robot name -> plugin data)
-static std::unordered_map<std::string, RobotIkPlugin> g_plugins;// NOLINT
+static std::unordered_map<std::string, RobotIkPlugin> g_plugins;
 
-/*
-==============================================================================
-    Helper (Basic)
-==============================================================================
-*/
-
-/**
- * Load a symbol from a DLL and cast to the specified type.
- 
- * @param[in] dll Handle to the loaded DLL.
- * @param[in] name Name of the symbol to load.
- * @return Pointer to the loaded symbol cast to type T, or nullptr on failure.
- */
 template <typename T>
 T load_symbol(HMODULE dll, const char* name) {
     FARPROC fp = GetProcAddress(dll, name);
     if (!fp) {
-        std::cerr << "GetProcAddress failed for symbol: " << name << '\n';
+        std::cerr << "GetProcAddress failed for symbol: " << name << std::endl;
         return nullptr;
     }
     return reinterpret_cast<T>(fp);
 }
 
-/**
- * Skip known dependency DLLs that are not IKFast plugins
- *
- * @param[in] p Filesystem path to the IKFast plugin DLL.
- * @return True if the DLL is a known dependency to skip.
- */
+static std::string robot_name_from_path(const fs::path& p) {
+    std::string stem = p.stem().string(); // "gp25_ikfast"
+    const std::string suffix = "_ikfast";
+    if (stem.size() > suffix.size() &&
+        stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        return stem.substr(0, stem.size() - suffix.size());
+    }
+    return stem;
+}
+
+// Skip known dependency DLLs that are not IKFast plugins
 static bool is_dependency_dll(const fs::path& p) {
     std::string name = p.filename().string();
     std::transform(name.begin(), name.end(), name.begin(), ::tolower);
@@ -85,67 +89,26 @@ static bool is_dependency_dll(const fs::path& p) {
     return std::find(skip_names.begin(), skip_names.end(), name) != skip_names.end();
 }
 
-/**
- * utf8 to wstring conversion for Korean path.
- *
- * @param[in] utf8_str utf8 string to convert.
- * @return Converted wide string.
- */
-static std::wstring utf8_to_wstring(const std::string& utf8_str) {
-    if (utf8_str.empty()) { return {};
-    }
-    
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, nullptr, 0);
-    if (size_needed <= 0) { return {};
-    }
-    
-    std::wstring wstr(size_needed - 1, 0);  // -1 to exclude null terminator
-    MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, wstr.data(), size_needed);
-    return wstr;
-}
-
-/**
- * Extract robot name from the given file path by removing the "_ikfast" suffix if present.
- *
- * @param[in] p Filesystem path to the IKFast plugin DLL.
- * @return Extracted robot name.
- */
-static std::string robot_name_from_path(const fs::path& p) {
-    std::string stem = p.stem().string(); // "gp25_ikfast"
-    const std::string suffix = "_ikfast";
-    if (stem.size() > suffix.size() &&
-        stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
-        return stem.substr(0, stem.size() - suffix.size());
-    }
-    return stem;
-}
-
-/**
- * Normalize robot name to lowercase for consistent lookup
- *
- * @param[in] name Robot name to normalize.
- * @return Lowercase normalized robot name.
- */
+// Helper: normalize robot name to lowercase for case-insensitive lookup
 static std::string normalize_robot_name(const std::string& name) {
     std::string normalized = name;
     std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::tolower);
     return normalized;
 }
 
-/*
-==============================================================================
-    Helpers (Joints)
-==============================================================================
-*/
+// Helper: Check if tcp_pose values are finite (not NaN/Inf)
+static bool is_tcp_pose_valid(const IkReal* tcp_pose, int size = 12) {
+    if (!tcp_pose) return false;
+    for (int i = 0; i < size; ++i) {
+        if (!std::isfinite(tcp_pose[i])) {
+            return false;  // NaN or Inf detected
+        }
+    }
+    return true;
+}
 
 // Load joint limits from compiled data
-/**
- * Load joint limits for the specified robot from compiled data.
- * 
- * @param[in] robot_name Name of the robot.
- * @param[out] out_limits Output vector to store loaded joint limits.
- * @return True if joint limits were found and loaded, false otherwise.
- */
+// Returns true if robot_name found, fills out_limits
 static bool load_joint_limits_from_data(
     const std::string& robot_name,
     std::vector<JointLimit>& out_limits
@@ -182,25 +145,14 @@ static bool load_joint_limits_from_data(
     return !out_limits.empty();
 }
 
-
-/** 
- * Check if a joint is fixed (non-moving)
- * @param[in] limit JointLimit structure to check.
- * @return True if the joint is fixed, false otherwise.
- */
+// Check if a joint is fixed (non-moving)
+// Fixed joints have limits [0, 0] or very small range (< 1e-6 radians ≈ 0.00006°)
 static bool is_fixed_joint(const JointLimit& limit) {
     const IkReal epsilon = 1e-6;  // ~0.00006 degrees
     return std::abs(limit.upper - limit.lower) < epsilon;
 }
 
-/**
- * Check if joint angles are within specified limits.
- *
- * @param[in] joints Pointer to array of joint angles.
- * @param[in] num_joints Number of joints.
- * @param[in] limits Vector of JointLimit structures.
- * @return True if all joints are within limits, false otherwise.
- */
+// Check if joint angles satisfy joint limits
 static bool check_joint_limits(
     const IkReal* joints,
     int num_joints,
@@ -212,7 +164,7 @@ static bool check_joint_limits(
     }
 
     if (num_joints <= 0) {
-        std::cerr << "[Joint Limit] Invalid num_joints: " << num_joints << '\n';
+        std::cerr << "[Joint Limit] Invalid num_joints: " << num_joints << std::endl;
         return false;
     }
 
@@ -243,60 +195,515 @@ static bool check_joint_limits(
     return true;  // All joints within limits
 }
 
-/**
- * Get joint limits for the specified robot.
- * @param[in] robot_name Name of the robot.
- * @param[out] out_limits Output vector to store joint limits.
- * @return True if joint limits were found, false otherwise.
- */
-bool get_joint_limits(const std::string& robot_name, std::vector<JointLimit>& out_limits) {
-    return load_joint_limits_from_data(robot_name, out_limits);
+// Add DLL search directories (robots dir + sibling dependencies dir)
+static void configure_dll_search_paths(const fs::path& robots_dir) {
+    using SetDefaultDllDirectoriesFn = BOOL (WINAPI*)(DWORD);
+    using AddDllDirectoryFn = DLL_DIRECTORY_COOKIE (WINAPI*)(PCWSTR);
+
+    // Build candidate DLL search paths
+    std::vector<fs::path> dll_dirs;
+    dll_dirs.push_back(robots_dir);
+
+    fs::path deps = robots_dir.parent_path() / "dependencies";
+    if (fs::exists(deps) && fs::is_directory(deps)) {
+        dll_dirs.push_back(deps);
+    }
+
+    const char* vcpkg_root = std::getenv("VCPKG_ROOT");
+    if (!vcpkg_root) vcpkg_root = "C:\\dev\\vcpkg";
+    fs::path vcpkg_bin = fs::path(vcpkg_root) / "installed" / "x64-windows" / "bin";
+    if (fs::exists(vcpkg_bin) && fs::is_directory(vcpkg_bin)) {
+        dll_dirs.push_back(vcpkg_bin);
+    }
+
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    auto setDefaultDllDirs = reinterpret_cast<SetDefaultDllDirectoriesFn>(
+        GetProcAddress(kernel32, "SetDefaultDllDirectories"));
+    auto addDllDirectory = reinterpret_cast<AddDllDirectoryFn>(
+        GetProcAddress(kernel32, "AddDllDirectory"));
+
+    // Prefer modern API if available (Win8+)
+    if (setDefaultDllDirs && addDllDirectory) {
+        setDefaultDllDirs(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+        for (const auto& dir : dll_dirs) {
+            addDllDirectory(dir.wstring().c_str());
+        }
+    } else {
+        // Fallback for older systems: set robots dir as DLL dir
+        SetDllDirectoryW(robots_dir.wstring().c_str());
+
+        // Best-effort: prepend additional dirs to PATH so dependency resolution still works
+        std::string current_path = std::getenv("PATH") ? std::getenv("PATH") : "";
+        for (const auto& dir : dll_dirs) {
+            std::string dir_str = dir.string();
+            if (current_path.find(dir_str) == std::string::npos) {
+                current_path = dir_str + ";" + current_path;
+            }
+        }
+        SetEnvironmentVariableA("PATH", current_path.c_str());
+    }
 }
 
-/*
-==============================================================================
-    Helpers (Math & Transforms)
-==============================================================================
-*/
+bool load_ik_plugins(const std::string& robots_dir) {
+    g_plugins.clear();
 
-/**
- * Multiply two 4x4 transforms in 12-element format.
- * @param[in] T_AB First transform (A to B).
- * @param[in] T_BC Second transform (B to C).
- * @param[out] T_AC Output transform (A to C).
- * @return void
- */
-static void multiply_transforms(const Transform& T_AB, const Transform& T_BC, Transform& T_AC) { //NOLINT
+    // Convert UTF-8 path to wide string for proper Korean/Unicode support
+    std::cerr << "[INIT] Converting UTF-8 path to wide string: " << robots_dir << std::endl;
+    std::wstring wide_path = utf8_to_wstring(robots_dir);
+    std::wcerr << L"[INIT] Wide path: " << wide_path << std::endl;
+
+    fs::path dir(wide_path);
+    std::wcerr << L"[INIT] Filesystem path: " << dir.wstring() << std::endl;
+
+    if (!fs::exists(dir)) {
+        std::cerr << "[ERROR] robots directory does not exist: " << robots_dir << std::endl;
+        std::wcerr << L"[ERROR] Wide path does not exist: " << wide_path << std::endl;
+        return false;
+    }
+
+    if (!fs::is_directory(dir)) {
+        std::cerr << "[ERROR] robots path is not a directory: " << robots_dir << std::endl;
+        return false;
+    }
+
+    std::cerr << "[INIT] robots directory found and validated" << std::endl;
+
+    // Configure DLL search paths (robots dir + dependencies)
+    configure_dll_search_paths(dir);
+
+    // CRITICAL: Load liblapack.dll and openblas.dll from robots directory FIRST
+    // This prevents conda's LAPACK from being loaded when robot DLLs call dgeev_
+    fs::path local_openblas = dir / "openblas.dll";
+    fs::path local_lapack = dir / "liblapack.dll";
+
+    if (fs::exists(local_openblas)) {
+        HMODULE h = LoadLibraryW(local_openblas.wstring().c_str());
+        if (h) {
+            char path[MAX_PATH];
+            GetModuleFileNameA(h, path, MAX_PATH);
+            std::cerr << "Preloaded local OpenBLAS: " << path << std::endl;
+        }
+    }
+
+    if (fs::exists(local_lapack)) {
+        // Load with full path to ensure this specific DLL is loaded
+        HMODULE h = LoadLibraryW(local_lapack.wstring().c_str());
+        if (h) {
+            char path[MAX_PATH];
+            GetModuleFileNameA(h, path, MAX_PATH);
+            std::cerr << "Preloaded local LAPACK: " << path << std::endl;
+        } else {
+            DWORD err = GetLastError();
+            std::cerr << "Failed to load local LAPACK (error " << err << ")" << std::endl;
+        }
+    }
+
+    // Also try vcpkg as fallback
+    const char* vcpkg_root = std::getenv("VCPKG_ROOT");
+    if (!vcpkg_root) vcpkg_root = "C:\\dev\\vcpkg";
+    fs::path vcpkg_bin = fs::path(vcpkg_root) / "installed" / "x64-windows" / "bin";
+
+    fs::path vcpkg_openblas = vcpkg_bin / "openblas.dll";
+    if (fs::exists(vcpkg_openblas) && !fs::exists(local_openblas)) {
+        HMODULE h = LoadLibraryW(vcpkg_openblas.wstring().c_str());
+        if (h) {
+            char path[MAX_PATH];
+            GetModuleFileNameA(h, path, MAX_PATH);
+            std::cerr << "Preloaded vcpkg OpenBLAS: " << path << std::endl;
+        }
+    }
+
+    // Recursively search for IKFast plugin DLLs under robots_dir (manufacturer/model layout)
+    std::cerr << "[INIT] Starting recursive directory search..." << std::endl;
+    try {
+        int dll_count = 0;
+        for (auto& entry : fs::recursive_directory_iterator(dir)) {
+            if (!entry.is_regular_file()) continue;
+            fs::path p = entry.path();
+            if (p.extension() != ".dll") continue;
+            dll_count++;
+            std::wcerr << L"[INIT] Found DLL #" << dll_count << L": " << p.wstring() << std::endl;
+
+        if (is_dependency_dll(p)) {
+            // Avoid treating dependency DLLs as IK plugins
+            continue;
+        }
+
+        std::string robot = robot_name_from_path(p);
+
+        // Use LOAD_WITH_ALTERED_SEARCH_PATH to search in the DLL's directory
+        HMODULE dll = LoadLibraryExW(p.wstring().c_str(), nullptr,
+                                      LOAD_WITH_ALTERED_SEARCH_PATH);
+        if (!dll) {
+            DWORD err = GetLastError();
+            std::wcerr << L"[ERROR] Failed to LoadLibrary: " << p.wstring()
+                       << L" (error code: " << err << L")" << std::endl;
+            continue;
+        }
+
+        RobotIkPlugin plugin;
+        plugin.dll = dll;
+        plugin.name = robot;
+
+        using IkFns = ikfast::IkFastFunctions<IkReal>;
+        plugin.fns._ComputeIk            = load_symbol<IkFns::ComputeIkFn>(dll, "ComputeIk");
+        plugin.fns._ComputeFk            = load_symbol<IkFns::ComputeFkFn>(dll, "ComputeFk");
+        plugin.fns._GetNumFreeParameters = load_symbol<IkFns::GetNumFreeParametersFn>(dll, "GetNumFreeParameters");
+        plugin.fns._GetFreeParameters    = load_symbol<IkFns::GetFreeParametersFn>(dll, "GetFreeParameters");
+        plugin.fns._GetNumJoints         = load_symbol<IkFns::GetNumJointsFn>(dll, "GetNumJoints");
+        plugin.fns._GetIkRealSize        = load_symbol<IkFns::GetIkRealSizeFn>(dll, "GetIkRealSize");
+        plugin.fns._GetIkFastVersion     = load_symbol<IkFns::GetIkFastVersionFn>(dll, "GetIkFastVersion");
+        plugin.fns._GetIkType            = load_symbol<IkFns::GetIkTypeFn>(dll, "GetIkType");
+        plugin.fns._GetKinematicsHash    = load_symbol<IkFns::GetKinematicsHashFn>(dll, "GetKinematicsHash");
+
+        if (!plugin.fns._ComputeIk || !plugin.fns._GetNumJoints) {
+            std::cerr << "DLL missing mandatory IKFast symbols, skipping: "
+                      << p.string() << std::endl;
+            FreeLibrary(dll);
+            continue;
+        }
+
+        plugin.num_joints = plugin.fns._GetNumJoints();
+        if (plugin.fns._GetNumFreeParameters) {
+            plugin.num_free = plugin.fns._GetNumFreeParameters();
+        }
+
+        // Validate IkReal size compatibility (must match host sizeof(IkReal))
+        if (plugin.fns._GetIkRealSize) {
+            plugin.ikreal_size = plugin.fns._GetIkRealSize();
+        }
+        if (plugin.ikreal_size != static_cast<int>(sizeof(IkReal))) {
+            std::cerr << "IkReal size mismatch for plugin '" << robot << "': plugin="
+                      << plugin.ikreal_size << ", host=" << sizeof(IkReal)
+                      << ". Plugin will be skipped. Rebuild plugin with matching precision." << std::endl;
+            FreeLibrary(dll);
+            continue;
+        }
+
+        // Load joint limits from compiled data
+        bool has_limits = load_joint_limits_from_data(robot, plugin.joint_limits);
+
+        std::cout << "Loaded IK plugin: " << robot
+                  << " (joints=" << plugin.num_joints
+                  << ", free=" << plugin.num_free
+                  << ", IkRealSize=" << plugin.ikreal_size;
+
+        if (has_limits) {
+            std::cout << ", limits=" << plugin.joint_limits.size() << ")";
+        } else {
+            std::cout << ", limits=none)";
+        }
+        std::cout << "\n";
+
+        // Store with lowercase name for case-insensitive lookup
+        std::string robot_lower = normalize_robot_name(robot);
+        g_plugins.emplace(robot_lower, std::move(plugin));
+        }
+        std::cerr << "[INIT] Finished directory search. Found " << g_plugins.size() << " plugins." << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Exception during directory iteration: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "[ERROR] Unknown exception during directory iteration" << std::endl;
+        return false;
+    }
+
+    return !g_plugins.empty();
+}
+
+static RobotIkPlugin* find_robot(const std::string& name) {
+    std::string normalized = normalize_robot_name(name);
+    auto it = g_plugins.find(normalized);
+    if (it == g_plugins.end()) return nullptr;
+    return &it->second;
+}
+
+bool solveIK(
+    const std::string& robot_name,
+    const IkReal* tcp_pose,
+    std::vector<IkSolutionData>& out_solutions
+) {
+    RobotIkPlugin* plugin = find_robot(robot_name);
+    if (!plugin) {
+        std::cerr << "Robot IK plugin not loaded: " << robot_name << std::endl;
+        return false;
+    }
+    if (plugin->ikreal_size != static_cast<int>(sizeof(IkReal))) {
+        std::cerr << "IkReal size mismatch for robot '" << robot_name << "': plugin="
+                  << plugin->ikreal_size << ", host=" << sizeof(IkReal)
+                  << ". Aborting solveIK." << std::endl;
+        return false;
+    }
+    if (!plugin->fns._ComputeIk) {
+        std::cerr << "ComputeIk not available\n";
+        return false;
+    }
+
+    // PATCH: Input validation - check tcp_pose for NaN/Inf
+    if (!is_tcp_pose_valid(tcp_pose, 12)) {
+        std::cerr << "[IK Safety] tcp_pose contains NaN or Inf values. Aborting solveIK.\n";
+        return false;
+    }
+
+    // Apply manufacturer-specific coordinate transformation if available
+    IkReal transformed_pose[12];
+    const IkReal* pose_to_use = tcp_pose;
+
+    std::string manufacturer = detect_manufacturer(robot_name);
+    if (!manufacturer.empty()) {
+        auto it = coordinate_transform_data::MANUFACTURER_TRANSFORMS.find(manufacturer);
+        if (it != coordinate_transform_data::MANUFACTURER_TRANSFORMS.end()) {
+            // Apply transformation: transformed_pose = tcp_pose * coord_transform
+            std::cout << "[Coordinate Transform] original pose" << std::endl;
+            std::cout << " R: [" 
+                      << tcp_pose[0] << ", " << tcp_pose[1] << ", " << tcp_pose[2] << "; "
+                      << tcp_pose[4] << ", " << tcp_pose[5] << ", " << tcp_pose[6] << "; "
+                      << tcp_pose[8] << ", " << tcp_pose[9] << ", " << tcp_pose[10] << "]"
+                      << std::endl;
+            
+            multiply_transforms(tcp_pose, it->second.data(), transformed_pose);
+            std::cout << "[Coordinate Transform] transformed_pose" << std::endl;
+            std::cout << " R: [" 
+                      << transformed_pose[0] << ", " << transformed_pose[1] << ", " << transformed_pose[2] << "; "
+                      << transformed_pose[4] << ", " << transformed_pose[5] << ", " << transformed_pose[6] << "; "
+                      << transformed_pose[8] << ", " << transformed_pose[9] << ", " << transformed_pose[10] << "]"
+                      << std::endl;
+            pose_to_use = transformed_pose;
+
+            // Debug log (can be disabled in production)
+            static bool debug_transform = (std::getenv("IK_DEBUG_TRANSFORM") != nullptr);
+            if (debug_transform) {
+                std::cout << "[Coordinate Transform] Applied '" << manufacturer
+                          << "' transform for robot '" << robot_name << "'\n";
+            }
+        }
+    }
+
+    // Extract position and rotation from 4x4 matrix (12 elements)
+    IkReal eetrans[3];
+    IkReal eerot[9];
+    extractTransformFromMatrix(pose_to_use, eetrans, eerot);
+
+    ikfast::IkSolutionList<IkReal> solutions;
+    bool ok = plugin->fns._ComputeIk(eetrans, eerot, nullptr, solutions);
+
+    if (!ok) return false;
+
+    size_t nsol = solutions.GetNumSolutions();
+    out_solutions.clear();
+    out_solutions.reserve(nsol);
+
+    std::vector<IkReal> freevec;  // No free parameters
+
+    // Filter solutions by joint limits
+    int filtered_count = 0;
+    for (size_t i = 0; i < nsol; ++i) {
+        const ikfast::IkSolutionBase<IkReal>& sol = solutions.GetSolution(i);
+        std::vector<IkReal> joints;
+        sol.GetSolution(joints, freevec);
+
+        if (static_cast<int>(joints.size()) != plugin->num_joints) {
+            std::cerr << "[Joint Limit] Solution DOF mismatch for robot '" << robot_name
+                      << "': solution_dof=" << joints.size()
+                      << ", expected=" << plugin->num_joints
+                      << ". Aborting solveIK.\n";
+            return false;
+        }
+
+        if (!check_joint_limits(joints.data(), plugin->num_joints, plugin->joint_limits)) {
+            // Debug which joint(s) violated limits when enabled via IK_DEBUG_LIMITS
+            int dof = plugin->num_joints;
+            const auto& limits = plugin->joint_limits;
+            if (limits.size() < static_cast<size_t>(dof)) {
+                std::cerr << "[Joint Limit DEBUG] Limit count mismatch: limits="
+                            << limits.size() << ", expected_joints=" << dof << "\n";
+            } else {
+                for (int ji = 0; ji < dof; ++ji) {
+                    const JointLimit& lim = limits[ji];
+                    if (is_fixed_joint(lim)) continue;  // skip fixed joints
+
+                    IkReal angle = joints[ji];
+                    if (angle < lim.lower || angle > lim.upper) {
+                        std::cerr << "[Joint Limit DEBUG] Robot '" << robot_name
+                                    << "' J" << (ji + 1) << " (index=" << ji << ")"
+                                    << " value=" << angle
+                                    << " outside [" << lim.lower << ", " << lim.upper << "]\n";
+                    }
+                }
+            }
+            ++filtered_count;
+            continue;
+        }
+
+        IkSolutionData s;
+        s.joints = std::move(joints);
+        out_solutions.push_back(std::move(s));
+    }
+
+    if (filtered_count > 0 && !plugin->joint_limits.empty()) {
+        std::cerr << "[Joint Limit Filter] " << robot_name
+                  << ": filtered " << filtered_count << "/" << nsol << " solutions\n";
+    }
+
+    return !out_solutions.empty();
+}
+
+int get_num_joints(const std::string& robot_name) {
+    RobotIkPlugin* p = find_robot(robot_name);
+    return p ? p->num_joints : -1;
+}
+
+int get_num_free_parameters(const std::string& robot_name) {
+    RobotIkPlugin* p = find_robot(robot_name);
+    return p ? p->num_free : -1;
+}
+
+bool computeFK(
+    const std::string& robot_name,
+    const IkReal* joints,
+    IkReal* eetrans,
+    IkReal* eerot
+) {
+    RobotIkPlugin* plugin = find_robot(robot_name);
+    if (!plugin) {
+        std::cerr << "Robot IK plugin not loaded: " << robot_name << std::endl;
+        return false;
+    }
+    if (!plugin->fns._ComputeFk) {
+        std::cerr << "ComputeFk not available for robot: " << robot_name << std::endl;
+        return false;
+    }
+
+    // PATCH: FK 입력 조인트가 joint limit을 넘으면 false 반환
+    if (!plugin->joint_limits.empty()) {
+        if (!check_joint_limits(joints, plugin->num_joints, plugin->joint_limits)) {
+            std::cerr << "[Joint Limit] FK input violates limits for robot '"
+                      << robot_name << "'\n";
+            return false;
+        }
+    }
+
+    // Compute FK in tool coordinate frame
+    IkReal fk_trans_tool[3];
+    IkReal fk_rot_tool[9];
+    plugin->fns._ComputeFk(joints, fk_trans_tool, fk_rot_tool);
+
+    // Apply inverse coordinate transformation to convert back to base frame
+    std::string manufacturer = detect_manufacturer(robot_name);
+    if (!manufacturer.empty()) {
+        auto it = coordinate_transform_data::MANUFACTURER_TRANSFORMS.find(manufacturer);
+        if (it != coordinate_transform_data::MANUFACTURER_TRANSFORMS.end()) {
+            // Build FK result as 12-element matrix (tool frame)
+            IkReal fk_pose_tool[12] = {
+                fk_rot_tool[0], fk_rot_tool[1], fk_rot_tool[2], fk_trans_tool[0],
+                fk_rot_tool[3], fk_rot_tool[4], fk_rot_tool[5], fk_trans_tool[1],
+                fk_rot_tool[6], fk_rot_tool[7], fk_rot_tool[8], fk_trans_tool[2]
+            };
+
+            // Compute inverse transform: T_base = T_tool * T_inv
+            // For rotation-only transform: T_inv = T^T (transpose)
+            const auto& T_forward = it->second;
+            IkReal T_inverse[12] = {
+                T_forward[0], T_forward[4], T_forward[8],  0.0,  // R^T row 1
+                T_forward[1], T_forward[5], T_forward[9],  0.0,  // R^T row 2
+                T_forward[2], T_forward[6], T_forward[10], 0.0   // R^T row 3
+            };
+
+            IkReal fk_pose_base[12];
+            multiply_transforms(fk_pose_tool, T_inverse, fk_pose_base);
+
+            // Extract back to eetrans and eerot (base frame)
+            eetrans[0] = fk_pose_base[3];
+            eetrans[1] = fk_pose_base[7];
+            eetrans[2] = fk_pose_base[11];
+
+            eerot[0] = fk_pose_base[0];
+            eerot[1] = fk_pose_base[1];
+            eerot[2] = fk_pose_base[2];
+            eerot[3] = fk_pose_base[4];
+            eerot[4] = fk_pose_base[5];
+            eerot[5] = fk_pose_base[6];
+            eerot[6] = fk_pose_base[8];
+            eerot[7] = fk_pose_base[9];
+            eerot[8] = fk_pose_base[10];
+
+            // Debug log
+            static bool debug_transform = (std::getenv("IK_DEBUG_TRANSFORM") != nullptr);
+            if (debug_transform) {
+                std::cout << "[Coordinate Transform] Applied inverse '" << manufacturer
+                          << "' transform for FK of robot '" << robot_name << "'\n";
+            }
+        } else {
+            // No transform - direct copy
+            eetrans[0] = fk_trans_tool[0];
+            eetrans[1] = fk_trans_tool[1];
+            eetrans[2] = fk_trans_tool[2];
+            std::copy(fk_rot_tool, fk_rot_tool + 9, eerot);
+        }
+    } else {
+        // No manufacturer - direct copy
+        eetrans[0] = fk_trans_tool[0];
+        eetrans[1] = fk_trans_tool[1];
+        eetrans[2] = fk_trans_tool[2];
+        std::copy(fk_rot_tool, fk_rot_tool + 9, eerot);
+    }
+
+    return true;
+}
+
+// Helper: Detect manufacturer from robot name based on prefix patterns
+std::string detect_manufacturer(const std::string& robot_name) {
+    std::string robot_upper = robot_name;
+    std::transform(robot_upper.begin(), robot_upper.end(), robot_upper.begin(), ::toupper);
+
+    // Kawasaki: KJ, RS prefix
+    if (robot_upper.find("KJ") == 0 || robot_upper.find("RS") == 0) {
+        return "kawasaki";
+    }
+
+    // Yaskawa: GP, MPX prefix
+    if (robot_upper.find("GP") == 0 || robot_upper.find("MPX") == 0) {
+        return "yaskawa";
+    }
+
+    // Default: no specific manufacturer
+    return "";
+}
+
+// Helper: Multiply two 4x4 transformation matrices (12-element format)
+// Input format: [R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz]
+// Result = T_AB * T_BC (T_AB transforms from B to A, T_BC from C to B)
+void multiply_transforms(const IkReal* T_AB, const IkReal* T_BC, IkReal* T_AC) {
     // Extract rotation matrices (3x3)
-    std::array<IkReal, 9> R_AB = {T_AB[0], T_AB[1], T_AB[2], //NOLINT
+    IkReal R_AB[9] = {T_AB[0], T_AB[1], T_AB[2],
                       T_AB[4], T_AB[5], T_AB[6],
                       T_AB[8], T_AB[9], T_AB[10]};
 
-    std::array<IkReal, 9> R_BC = {T_BC[0], T_BC[1], T_BC[2], //NOLINT
+    IkReal R_BC[9] = {T_BC[0], T_BC[1], T_BC[2],
                       T_BC[4], T_BC[5], T_BC[6],
                       T_BC[8], T_BC[9], T_BC[10]};
 
     // Extract translation vectors
-    std::array<IkReal, 3> t_AB = {T_AB[3], T_AB[7], T_AB[11]}; //NOLINT
-    std::array<IkReal, 3> t_BC = {T_BC[3], T_BC[7], T_BC[11]}; //NOLINT
+    IkReal t_AB[3] = {T_AB[3], T_AB[7], T_AB[11]};
+    IkReal t_BC[3] = {T_BC[3], T_BC[7], T_BC[11]};
 
     // Compute R_AC = R_AB * R_BC (3x3 matrix multiplication)
-    std::array<IkReal,9> R_AC{}; //NOLINT
+    IkReal R_AC[9];
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
-            R_AC[i * 3 + j] = 0.0; //NOLINT
+            R_AC[i * 3 + j] = 0.0;
             for (int k = 0; k < 3; ++k) {
-                R_AC[i * 3 + j] += R_AB[i * 3 + k] * R_BC[k * 3 + j]; //NOLINT
+                R_AC[i * 3 + j] += R_AB[i * 3 + k] * R_BC[k * 3 + j];
             }
         }
     }
 
     // Compute t_AC = R_AB * t_BC + t_AB
-    std::array<IkReal, 3> t_AC{}; //NOLINT
+    IkReal t_AC[3];
     for (int i = 0; i < 3; ++i) {
-        t_AC[i] = t_AB[i]; //NOLINT
+        t_AC[i] = t_AB[i];
         for (int j = 0; j < 3; ++j) {
-            t_AC[i] += R_AB[i * 3 + j] * t_BC[j]; //NOLINT
+            t_AC[i] += R_AB[i * 3 + j] * t_BC[j];
         }
     }
 
@@ -306,14 +713,9 @@ static void multiply_transforms(const Transform& T_AB, const Transform& T_BC, Tr
     T_AC[8]  = R_AC[6];  T_AC[9]  = R_AC[7];  T_AC[10] = R_AC[8];  T_AC[11] = t_AC[2];
 }
 
-/**
- * Extract translation and rotation from 4x4 matrix in 12-element format.
- * @param[in] matrix_12 Input 12-element matrix (4x4 format).
- * @param[out] eetrans Output translation array (3 elements).
- * @param[out] eerot Output rotation array (9 elements).
- * @return void
- */
-static void extract_transform_from_matrix(const IkReal* matrix_12, std::array<IkReal, 3>& eetrans, std::array<IkReal, 9>& eerot) {
+// Helper: Extract translation and rotation from 4x4 matrix (12 elements)
+// Input format: [R11, R12, R13, Tx, R21, R22, R23, Ty, R31, R32, R33, Tz]
+static void extractTransformFromMatrix(const IkReal* matrix_12, IkReal* eetrans, IkReal* eerot) {
     // Extract translation (Tx, Ty, Tz)
     eetrans[0] = matrix_12[3];  // Tx
     eetrans[1] = matrix_12[7];  // Ty
@@ -331,28 +733,22 @@ static void extract_transform_from_matrix(const IkReal* matrix_12, std::array<Ik
     eerot[8] = matrix_12[10]; // R33
 }
 
-/**
- * Wrapper to normalize angle to [-pi, pi]
- * @param[in] angle Input angle in radians.
- * @return Normalized angle in radians within [-pi, pi].
- */
-static IkReal normalize_angle(IkReal angle) {
-    while (angle > M_PI) { angle -= 2.0 * M_PI;
-    }
-    while (angle < -M_PI) { angle += 2.0 * M_PI;
-    }
+// Helper: Normalize angle to [-pi, pi]
+static IkReal normalizeAngle(IkReal angle) {
+    while (angle > M_PI) angle -= 2.0 * M_PI;
+    while (angle < -M_PI) angle += 2.0 * M_PI;
     return angle;
 }
 
-/**
- * Apply wrapping to joint values to be closest to target joints.
- * For revolute joints with range >= 2π, adjusts joint values by ±2π to minimize distance.
- * @param[in,out] joints Joint array to wrap (modified in-place).
- * @param[in] target_joints Target joint configuration for distance calculation.
- * @param[in] dof Number of joints (degrees of freedom).
- * @param[in] limits Joint limits for each joint.
- * @return void
- */
+// Helper: Normalize angle difference to [-pi, pi]
+// This is critical for computing distances between angles correctly
+// Example: -170° to +170° = 20° difference, not 340°
+static IkReal normalizeAngleDiff(IkReal diff) {
+    while (diff > M_PI) diff -= 2.0 * M_PI;
+    while (diff < -M_PI) diff += 2.0 * M_PI;
+    return diff;
+}
+
 static void wrap_joints_to_nearest(
     IkReal* joints,
     const IkReal* target_joints,
@@ -371,15 +767,8 @@ static void wrap_joints_to_nearest(
     }
 }
 
-/**
- * Compute Euclidean distance between two joints arrays.
- * @param[in] joints1 First joint array.
- * @param[in] joints2 Second joint array.
- * @param[in] dof Number of joints (degrees of freedom).
- * @param[in] limits Joint limits for each joint.
- * @return Euclidean distance between the two joint configurations.
- */
-static IkReal compute_joint_distance(
+// Helper: Compute Euclidean distance between two joint configurations with angle wrapping
+static IkReal computeJointDistance(
     const IkReal* joints1,
     const IkReal* joints2,
     int dof,
@@ -410,14 +799,8 @@ static IkReal compute_joint_distance(
     return std::sqrt(sum);
 }
 
-/**
- * Safely compute midpoint of joint limits, handling infinite limits.
- * @param[in] joint_min Array of joint minimum limits.
- * @param[in] joint_max Array of joint maximum limits.
- * @param[in] idx Index of the joint.
- * @return Midpoint value or 0.0 if limits are infinite.
- */
-static IkReal safe_midpoint(const IkReal* joint_min, const IkReal* joint_max, int idx) { //NOLINT
+// Helper: Check if solution matches configuration
+static IkReal safeMidpoint(const IkReal* joint_min, const IkReal* joint_max, int idx) {
     IkReal mn = joint_min[idx];
     IkReal mx = joint_max[idx];
     if (std::isfinite(mn) && std::isfinite(mx)) {
@@ -426,602 +809,7 @@ static IkReal safe_midpoint(const IkReal* joint_min, const IkReal* joint_max, in
     return 0.0;
 }
 
-/*
-==============================================================================
-    Helpers (Path & Plugin Loading)
-==============================================================================
-*/
-
-/**
- * Detect robot manufacturer based on robot name prefix.
- * @param[in] robot_name Name of the robot.
- * @return Manufacturer string ("kawasaki", "yaskawa", or "").
- */
-std::string detect_manufacturer(const std::string& robot_name) {
-    std::string robot_upper = robot_name;
-    std::transform(robot_upper.begin(), robot_upper.end(), robot_upper.begin(), ::toupper);
-
-    // Kawasaki: KJ, RS prefix
-    if (robot_upper.find("KJ") == 0 || robot_upper.find("RS") == 0) {
-        return "kawasaki";
-    }
-
-    // Yaskawa: GP, MPX prefix
-    if (robot_upper.find("GP") == 0 || robot_upper.find("MPX") == 0) {
-        return "yaskawa";
-    }
-
-    // Default: no specific manufacturer
-    return "";
-}
-
-/**
- * Check if tcp_pose contains any NaN or Inf values
- *
- * @param[in] tcp_pose Pointer to the tcp_pose array.
- * @param[in] size Number of elements in tcp_pose (default 12).
- * @return True if all values are finite, false if any NaN or Inf detected.
- */
-static bool is_tcp_pose_valid(const IkReal* tcp_pose, int size = 12) {
-    if (tcp_pose == nullptr) { return false;
-    }
-    for (int i = 0; i < size; ++i) {
-        if (!std::isfinite(tcp_pose[i])) {
-            return false;  // NaN or Inf detected
-        }
-    }
-    return true;
-}
-
-
-/**
- * Try to load a single IKFast plugin from a DLL file.
- *
- * @param[in] dll_path Path to the DLL file.
- * @param[out] out_plugin Output RobotIkPlugin structure to populate.
- * @return True if plugin was successfully loaded, false otherwise.
- */
-static bool try_load_plugin_from_dll(const fs::path& dll_path, RobotIkPlugin& out_plugin) {
-    std::string robot = robot_name_from_path(dll_path);
-
-    // Use LOAD_WITH_ALTERED_SEARCH_PATH to search in the DLL's directory
-    HMODULE dll = LoadLibraryExW(dll_path.wstring().c_str(), nullptr,
-                                  LOAD_WITH_ALTERED_SEARCH_PATH);
-    if (dll == nullptr) {
-        DWORD err = GetLastError();
-        std::wcerr << L"[ERROR] Failed to LoadLibrary: " << dll_path.wstring()
-                   << L" (error code: " << err << L")" << '\n';
-        return false;
-    }
-
-    RobotIkPlugin plugin;
-    plugin.dll = dll;
-    plugin.name = robot;
-
-    using IkFns = ikfast::IkFastFunctions<IkReal>;
-    plugin.fns._ComputeIk            = load_symbol<IkFns::ComputeIkFn>(dll, "ComputeIk");
-    plugin.fns._ComputeFk            = load_symbol<IkFns::ComputeFkFn>(dll, "ComputeFk");
-    plugin.fns._GetNumFreeParameters = load_symbol<IkFns::GetNumFreeParametersFn>(dll, "GetNumFreeParameters");
-    plugin.fns._GetFreeParameters    = load_symbol<IkFns::GetFreeParametersFn>(dll, "GetFreeParameters");
-    plugin.fns._GetNumJoints         = load_symbol<IkFns::GetNumJointsFn>(dll, "GetNumJoints");
-    plugin.fns._GetIkRealSize        = load_symbol<IkFns::GetIkRealSizeFn>(dll, "GetIkRealSize");
-    plugin.fns._GetIkFastVersion     = load_symbol<IkFns::GetIkFastVersionFn>(dll, "GetIkFastVersion");
-    plugin.fns._GetIkType            = load_symbol<IkFns::GetIkTypeFn>(dll, "GetIkType");
-    plugin.fns._GetKinematicsHash    = load_symbol<IkFns::GetKinematicsHashFn>(dll, "GetKinematicsHash");
-
-    if ((plugin.fns._ComputeIk == nullptr) || (plugin.fns._GetNumJoints == nullptr)) {
-        std::cerr << "DLL missing mandatory IKFast symbols, skipping: "
-                  << dll_path.string() << '\n';
-        FreeLibrary(dll);
-        return false;
-    }
-
-    plugin.num_joints = plugin.fns._GetNumJoints();
-    if (plugin.fns._GetNumFreeParameters != nullptr) {
-        plugin.num_free = plugin.fns._GetNumFreeParameters();
-    }
-
-    // Validate IkReal size compatibility (must match host sizeof(IkReal))
-    if (plugin.fns._GetIkRealSize != nullptr) {
-        plugin.ikreal_size = plugin.fns._GetIkRealSize();
-    }
-    if (plugin.ikreal_size != static_cast<int>(sizeof(IkReal))) {
-        std::cerr << "IkReal size mismatch for plugin '" << robot << "': plugin="
-                  << plugin.ikreal_size << ", host=" << sizeof(IkReal)
-                  << ". Plugin will be skipped. Rebuild plugin with matching precision." << '\n';
-        FreeLibrary(dll);
-        return false;
-    }
-
-    // Load joint limits from compiled data
-    bool has_limits = load_joint_limits_from_data(robot, plugin.joint_limits);
-
-    std::cout << "Loaded IK plugin: " << robot
-              << " (joints=" << plugin.num_joints
-              << ", free=" << plugin.num_free
-              << ", IkRealSize=" << plugin.ikreal_size;
-
-    if (has_limits) {
-        std::cout << ", limits=" << plugin.joint_limits.size() << ")";
-    } else {
-        std::cout << ", limits=none)";
-    }
-    std::cout << "\n";
-
-    out_plugin = std::move(plugin);
-    return true;
-}
-
-/**
- * Scan robots directory and load all IKFast plugin DLLs.
- *
- * @param[in] robots_dir Path to the robots directory.
- * @return True if at least one plugin was loaded successfully.
- */
-static bool scan_and_load_all_plugins(const fs::path& robots_dir) {
-    std::cerr << "[INIT] Starting recursive directory search..." << '\n';
-
-    try {
-        int dll_count = 0;
-        for (const auto& entry : fs::recursive_directory_iterator(robots_dir)) {
-            if (!entry.is_regular_file()) {
-                continue;
-            }
-            const fs::path& dll_path = entry.path();
-            if (dll_path.extension() != ".dll") {
-                continue;
-            }
-            dll_count++;
-            std::wcerr << L"[INIT] Found DLL #" << dll_count << L": " << dll_path.wstring() << '\n';
-
-            if (is_dependency_dll(dll_path)) {
-                // Avoid treating dependency DLLs as IK plugins
-                continue;
-            }
-
-            RobotIkPlugin plugin;
-            if (try_load_plugin_from_dll(dll_path, plugin)) {
-                // Store with lowercase name for case-insensitive lookup
-                std::string robot_lower = normalize_robot_name(plugin.name);
-                g_plugins.emplace(robot_lower, std::move(plugin));
-            }
-        }
-        std::cerr << "[INIT] Finished directory search. Found " << g_plugins.size() << " plugins." << '\n';
-    } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Exception during directory iteration: " << e.what() << '\n';
-        return false;
-    } catch (...) {
-        std::cerr << "[ERROR] Unknown exception during directory iteration" << '\n';
-        return false;
-    }
-
-    return !g_plugins.empty();
-}
-
-/**
- * Add DLL search paths for loading IKFast plugins and dependencies.
- * @param[in] robots_dir Path to the robots directory containing IKFast plugins.
- * @return void
- */
-static void configure_dll_search_paths(const fs::path& robots_dir) {
-    using SetDefaultDllDirectoriesFn = BOOL (WINAPI*)(DWORD);
-    using AddDllDirectoryFn = DLL_DIRECTORY_COOKIE (WINAPI*)(PCWSTR);
-
-    // Build candidate DLL search paths
-    std::vector<fs::path> dll_dirs;
-    dll_dirs.push_back(robots_dir);
-
-    fs::path deps = robots_dir.parent_path() / "dependencies";
-    if (fs::exists(deps) && fs::is_directory(deps)) {
-        dll_dirs.push_back(deps);
-    }
-
-    char* vcpkg_buffer = nullptr;
-    size_t vcpkg_size = 0;
-    std::string vcpkg_root = "C:\\dev\\vcpkg";
-    if (_dupenv_s(&vcpkg_buffer, &vcpkg_size, "VCPKG_ROOT") == 0 && vcpkg_buffer != nullptr) {
-        std::unique_ptr<char, decltype(&free)> vcpkg_guard(vcpkg_buffer, free);
-        vcpkg_root = vcpkg_buffer;
-    }
-    fs::path vcpkg_bin = fs::path(vcpkg_root) / "installed" / "x64-windows" / "bin";
-    if (fs::exists(vcpkg_bin) && fs::is_directory(vcpkg_bin)) {
-        dll_dirs.push_back(vcpkg_bin);
-    }
-
-    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    auto set_default_dll_dirs = reinterpret_cast<SetDefaultDllDirectoriesFn>(
-        GetProcAddress(kernel32, "SetDefaultDllDirectories"));
-    auto add_dll_directory = reinterpret_cast<AddDllDirectoryFn>(
-        GetProcAddress(kernel32, "AddDllDirectory"));
-
-    // Prefer modern API if available (Win8+)
-    if ((set_default_dll_dirs != nullptr) && (add_dll_directory != nullptr)) {
-        set_default_dll_dirs(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
-        for (const auto& dir : dll_dirs) {
-            add_dll_directory(dir.wstring().c_str());
-        }
-    } else {
-        // Fallback for older systems: set robots dir as DLL dir
-        SetDllDirectoryW(robots_dir.wstring().c_str());
-
-        // Best-effort: prepend additional dirs to PATH so dependency resolution still works
-        char* path_buffer = nullptr;
-        size_t path_size = 0;
-        std::string current_path;
-        if (_dupenv_s(&path_buffer, &path_size, "PATH") == 0 && path_buffer != nullptr) {
-            std::unique_ptr<char, decltype(&free)> path_guard(path_buffer, free);
-            current_path = path_buffer;
-        }
-        for (const auto& dir : dll_dirs) {
-            std::string dir_str = dir.string();
-            if (current_path.find(dir_str) == std::string::npos) {
-                dir_str += ";";
-                dir_str += current_path;
-                current_path = dir_str;
-            }
-        }
-        SetEnvironmentVariableA("PATH", current_path.c_str());
-    }
-}
-
-/**
- * Load IKFast plugins from the specified robots directory using recursive directory iteration.
- * @param[in] robots_dir Path to the robots directory.
- * @return True if at least one plugin was loaded successfully, false otherwise.
- */
-bool load_ik_plugins(const std::string& robots_dir) {
-    g_plugins.clear();
-
-    // Convert UTF-8 path to wide string for proper Korean/Unicode support
-    std::wstring wide_path = utf8_to_wstring(robots_dir);
-
-    fs::path dir(wide_path);
-
-    if (!fs::exists(dir)) {
-        std::wcerr << L"[ERROR] Wide path does not exist: " << wide_path << '\n';
-        return false;
-    }
-
-    if (!fs::is_directory(dir)) {
-        std::cerr << "[ERROR] robots path is not a directory: " << robots_dir << '\n';
-        return false;
-    }
-
-    std::cerr << "[INIT] robots directory found and validated" << '\n';
-
-    // Configure DLL search paths (robots dir + dependencies)
-    configure_dll_search_paths(dir);
-
-    // CRITICAL: Load liblapack.dll and openblas.dll from robots directory FIRST
-    // This prevents conda's LAPACK from being loaded when robot DLLs call dgeev_
-    fs::path local_openblas = dir / "openblas.dll";
-    fs::path local_lapack = dir / "liblapack.dll";
-
-    if (fs::exists(local_openblas)) {
-        HMODULE h = LoadLibraryW(local_openblas.wstring().c_str());
-        if (h != nullptr) {
-            std::array<char, MAX_PATH> path{};
-            GetModuleFileNameA(h, path.data(), MAX_PATH);
-            std::cerr << "Preloaded local OpenBLAS: " << path.data() << '\n';
-        } else {
-            DWORD err = GetLastError();
-        }
-    }
-
-    if (fs::exists(local_lapack)) {
-        // Load with full path to ensure this specific DLL is loaded
-        HMODULE h = LoadLibraryW(local_lapack.wstring().c_str());
-        if (h != nullptr) {
-            std::array<char, MAX_PATH> path{};
-            GetModuleFileNameA(h, path.data(), MAX_PATH);
-            std::cerr << "Preloaded local LAPACK: " << path.data() << '\n';
-        } else {
-            DWORD err = GetLastError();
-        }
-    }
-
-    // Also try vcpkg as fallback
-    char* vcpkg_buffer = nullptr;
-    size_t vcpkg_size = 0;
-    std::string vcpkg_root = "C:\\dev\\vcpkg";
-    if (_dupenv_s(&vcpkg_buffer, &vcpkg_size, "VCPKG_ROOT") == 0 && vcpkg_buffer != nullptr) {
-        std::unique_ptr<char, decltype(&free)> vcpkg_guard(vcpkg_buffer, free);
-        vcpkg_root = vcpkg_buffer;
-    }
-    fs::path vcpkg_bin = fs::path(vcpkg_root) / "installed" / "x64-windows" / "bin";
-
-    fs::path vcpkg_openblas = vcpkg_bin / "openblas.dll";
-    if (fs::exists(vcpkg_openblas) && !fs::exists(local_openblas)) {
-        HMODULE h = LoadLibraryW(vcpkg_openblas.wstring().c_str());
-        if (h != nullptr) {
-            std::array<char, MAX_PATH> path{};
-            GetModuleFileNameA(h, path.data(), MAX_PATH);
-            std::cerr << "Preloaded vcpkg OpenBLAS: " << path.data() << '\n';
-        }
-    }
-
-    // Scan and load all IKFast plugin DLLs
-    return scan_and_load_all_plugins(dir);
-}
-
-
-/**
- * Find loaded RobotIkPlugin by robot name (case-insensitive).
- * @param[in] name Robot name to search for.
- * @return Pointer to RobotIkPlugin if found, nullptr otherwise. 
- */
-static RobotIkPlugin* find_robot(const std::string& name) {
-    std::string normalized = normalize_robot_name(name);
-    auto it = g_plugins.find(normalized);
-    if (it == g_plugins.end()) { return nullptr;
-    }
-    return &it->second;
-}
-
-/*
-==============================================================================
-    Core API
-==============================================================================
-*/
-
-/**
- * Solve multiple IK for the specified robot and TCP pose.
- * @param[in] robot_name Name of the robot.
- * @param[in] tcp_pose Pointer to 12-element TCP pose array (4x4 matrix format).
- * @param[out] out_solutions Output vector to store found IK solutions.
- * @return True if at least one valid solution was found, false otherwise.
- */
-bool solveIK(
-    const std::string& robot_name,
-    const IkReal* tcp_pose,
-    std::vector<IkSolutionData>& out_solutions
-) {
-    RobotIkPlugin* plugin = find_robot(robot_name);
-    if (plugin == nullptr) {
-        std::cerr << "Robot IK plugin not loaded: " << robot_name << '\n';
-        return false;
-    }
-    if (plugin->ikreal_size != static_cast<int>(sizeof(IkReal))) {
-        std::cerr << "IkReal size mismatch for robot '" << robot_name << "': plugin="
-                  << plugin->ikreal_size << ", host=" << sizeof(IkReal)
-                  << ". Aborting solveIK." << '\n';
-        return false;
-    }
-    if (plugin->fns._ComputeIk == nullptr) {
-        std::cerr << "ComputeIk not available\n";
-        return false;
-    }
-
-    // PATCH: Input validation - check tcp_pose for NaN/Inf
-    if (!is_tcp_pose_valid(tcp_pose, 12)) {
-        std::cerr << "[IK Safety] tcp_pose contains NaN or Inf values. Aborting solveIK.\n";
-        return false;
-    }
-
-    // Apply manufacturer-specific coordinate transformation if available
-    Transform transformed_pose{};
-    const IkReal* pose_to_use = tcp_pose;
-
-    std::string manufacturer = detect_manufacturer(robot_name);
-    std::cout<<"manufacturer: "<<manufacturer<<'\n';
-    if (!manufacturer.empty()) {
-        auto it = coordinate_transform_data::MANUFACTURER_TRANSFORMS.find(manufacturer);
-        if (it != coordinate_transform_data::MANUFACTURER_TRANSFORMS.end()) {
-            // Apply transformation: transformed_pose = tcp_pose * coord_transform
-            multiply_transforms(Transform(tcp_pose), Transform(it->second.data()), transformed_pose);
-            pose_to_use = transformed_pose.data.data();
-
-            // Debug log (can be disabled in production)
-            static bool debug_transform = (std::getenv("IK_DEBUG_TRANSFORM") != nullptr);
-            if (debug_transform) {
-                std::cout << "[Coordinate Transform] Applied '" << manufacturer
-                          << "' transform for robot '" << robot_name << "'\n";
-            }
-        }
-    }
-
-    // Extract position and rotation from 4x4 matrix (12 elements)
-    std::array<IkReal, 3> eetrans{};
-    std::array<IkReal, 9> eerot{};
-    extract_transform_from_matrix(pose_to_use, eetrans, eerot);
-
-    ikfast::IkSolutionList<IkReal> solutions;
-    bool ok = plugin->fns._ComputeIk(eetrans.data(), eerot.data(), nullptr, solutions);
-
-    if (!ok) { return false;
-    }
-
-    size_t nsol = solutions.GetNumSolutions();
-    out_solutions.clear();
-    out_solutions.reserve(nsol);
-
-    std::vector<IkReal> freevec;  // No free parameters
-
-    // Filter solutions by joint limits
-    int filtered_count = 0;
-    for (size_t i = 0; i < nsol; ++i) {
-        const ikfast::IkSolutionBase<IkReal>& sol = solutions.GetSolution(i);
-        std::vector<IkReal> joints;
-        sol.GetSolution(joints, freevec);
-
-        if (static_cast<int>(joints.size()) != plugin->num_joints) {
-            std::cerr << "[Joint Limit] Solution DOF mismatch for robot '" << robot_name
-                      << "': solution_dof=" << joints.size()
-                      << ", expected=" << plugin->num_joints
-                      << ". Aborting solveIK.\n";
-            return false;
-        }
-
-        if (!check_joint_limits(joints.data(), plugin->num_joints, plugin->joint_limits)) {
-            // Debug which joint(s) violated limits (optional, controlled by environment variable)
-            static bool debug_limits = (std::getenv("IK_DEBUG_LIMITS") != nullptr);
-            if (debug_limits) {
-                int dof = plugin->num_joints;
-                const auto& limits = plugin->joint_limits;
-                // Note: limits count already validated in check_joint_limits()
-                for (int ji = 0; ji < dof && ji < static_cast<int>(limits.size()); ++ji) {
-                    const JointLimit& lim = limits[ji];
-                    if (is_fixed_joint(lim)) { continue;  // skip fixed joints
-                    }
-
-                    IkReal angle = joints[ji];
-                    if (angle < lim.lower || angle > lim.upper) {
-                        std::cerr << "[Joint Limit DEBUG] Robot '" << robot_name
-                                    << "' J" << (ji + 1) << " (index=" << ji << ")"
-                                    << " value=" << angle
-                                    << " outside [" << lim.lower << ", " << lim.upper << "]\n";
-                    }
-                }
-            }
-            ++filtered_count;
-            continue;
-        }
-
-        IkSolutionData s;
-        s.joints = std::move(joints);
-        out_solutions.push_back(std::move(s));
-    }
-
-    if (filtered_count > 0 && !plugin->joint_limits.empty()) {
-        std::cerr << "[Joint Limit Filter] " << robot_name
-                  << ": filtered " << filtered_count << "/" << nsol << " solutions\n";
-    }
-    return !out_solutions.empty();
-}
-
-/**
- * Get number of joints for the specified robot.
- * @param[in] robot_name Name of the robot.
- * @return Number of joints, or -1 if robot not found.
- */
-int get_num_joints(const std::string& robot_name) {
-    RobotIkPlugin* p = find_robot(robot_name);
-    return (p != nullptr) ? p->num_joints : -1;
-}
-
-/**
- * Get number of DOF for the specified robot.
- * @param[in] robot_name Name of the robot.
- * @return Number of DOF, or -1 if robot not found.
- */
-int get_num_free_parameters(const std::string& robot_name) {
-    RobotIkPlugin* p = find_robot(robot_name);
-    return (p != nullptr) ? p->num_free : -1;
-}
-
-/**
- * Compute Forward Kinematics for the specified robot and joint angles.
- * @param[in] robot_name Name of the robot.
- * @param[in] joints Pointer to array of joint angles.
- * @param[out] eetrans Output array for end-effector translation (3 elements).
- * @param[out] eerot Output array for end-effector rotation (9 elements).
- * @return True if FK computation was successful, false otherwise.
- */
-bool computeFK(
-    const std::string& robot_name,
-    const IkReal* joints,
-    IkReal* eetrans, //NOLINT
-    IkReal* eerot //NOLINT
-) {
-    RobotIkPlugin* plugin = find_robot(robot_name);
-    if (plugin == nullptr) {
-        std::cerr << "Robot IK plugin not loaded: " << robot_name << '\n';
-        return false;
-    }
-    if (plugin->fns._ComputeFk == nullptr) {
-        std::cerr << "ComputeFk not available for robot: " << robot_name << '\n';
-        return false;
-    }
-
-    // PATCH: FK 입력 조인트가 joint limit을 넘으면 false 반환
-    if (!plugin->joint_limits.empty()) {
-        if (!check_joint_limits(joints, plugin->num_joints, plugin->joint_limits)) {
-            std::cerr << "[Joint Limit] FK input violates limits for robot '"
-                      << robot_name << "'\n";
-            return false;
-        }
-    }
-
-    // Compute FK in tool coordinate frame
-    std::array<IkReal, 3> fk_trans_tool{};
-    std::array<IkReal, 9> fk_rot_tool{};
-    plugin->fns._ComputeFk(joints, fk_trans_tool.data(), fk_rot_tool.data());
-
-    // Apply inverse coordinate transformation to convert back to base frame
-    std::string manufacturer = detect_manufacturer(robot_name);
-    if (!manufacturer.empty()) {
-        auto it = coordinate_transform_data::MANUFACTURER_TRANSFORMS.find(manufacturer);
-        if (it != coordinate_transform_data::MANUFACTURER_TRANSFORMS.end()) {
-            // Build FK result as 12-element matrix (tool frame)
-            std::array<IkReal, 12> fk_pose_tool = {
-                fk_rot_tool[0], fk_rot_tool[1], fk_rot_tool[2], fk_trans_tool[0],
-                fk_rot_tool[3], fk_rot_tool[4], fk_rot_tool[5], fk_trans_tool[1],
-                fk_rot_tool[6], fk_rot_tool[7], fk_rot_tool[8], fk_trans_tool[2]
-            };
-
-            // Compute inverse transform: T_base = T_tool * T_inv
-            // For rotation-only transform: T_inv = T^T (transpose)
-            const auto& T_forward = it->second; //NOLINT
-            std::array<IkReal, 12> T_inverse = { //NOLINT
-                T_forward[0], T_forward[4], T_forward[8],  0.0,  // R^T row 1
-                T_forward[1], T_forward[5], T_forward[9],  0.0,  // R^T row 2
-                T_forward[2], T_forward[6], T_forward[10], 0.0   // R^T row 3
-            };
-
-            Transform fk_pose_base{};
-            multiply_transforms(Transform(fk_pose_tool.data()), Transform(T_inverse.data()), fk_pose_base);
-
-            // Extract back to eetrans and eerot (base frame)
-            eetrans[0] = fk_pose_base[3];
-            eetrans[1] = fk_pose_base[7];
-            eetrans[2] = fk_pose_base[11];
-
-            eerot[0] = fk_pose_base[0];
-            eerot[1] = fk_pose_base[1];
-            eerot[2] = fk_pose_base[2];
-            eerot[3] = fk_pose_base[4];
-            eerot[4] = fk_pose_base[5];
-            eerot[5] = fk_pose_base[6];
-            eerot[6] = fk_pose_base[8];
-            eerot[7] = fk_pose_base[9];
-            eerot[8] = fk_pose_base[10];
-
-            // Debug log
-            char* debug_buffer = nullptr;
-            size_t debug_size = 0;
-            static bool debug_transform = (_dupenv_s(&debug_buffer, &debug_size, "IK_DEBUG_TRANSFORM") == 0);
-            if (debug_transform) {  
-                std::cout << "[Coordinate Transform] Applied inverse '" << manufacturer
-                          << "' transform for FK of robot '" << robot_name << "'\n";
-            }
-        } else {
-            // No transform - direct copy
-            eetrans[0] = fk_trans_tool[0];
-            eetrans[1] = fk_trans_tool[1];
-            eetrans[2] = fk_trans_tool[2];
-            std::copy(fk_rot_tool.begin(), fk_rot_tool.end(), eerot);
-        }
-    } else {
-        // No manufacturer - direct copy
-        eetrans[0] = fk_trans_tool[0];
-        eetrans[1] = fk_trans_tool[1];
-        eetrans[2] = fk_trans_tool[2];
-        std::copy(fk_rot_tool.begin(), fk_rot_tool.end(), eerot);
-    }
-
-    return true;
-}
-
-
-/**
- * Get robot-specific J3 reference angle for Elbow UP/DOWN configuration.
- * @param[in] robot_lower Lowercase robot name.
- * @param[in] joint_min Array of joint minimum limits.
- * @param[in] joint_max Array of joint maximum limits.
- * @param[in] idx_elbow Index of the elbow joint (Default : J3).
- * @return Reference angle for J3.
- */
-static IkReal get_j3_reference(const std::string& robot_lower,
+static IkReal getJ3Reference(const std::string& robot_lower,
                              const IkReal* joint_min,
                              const IkReal* joint_max,
                              int idx_elbow) {
@@ -1031,26 +819,12 @@ static IkReal get_j3_reference(const std::string& robot_lower,
     }
 
     // Fallback: midpoint
-    return safe_midpoint(joint_min, joint_max, idx_elbow);
+    return safeMidpoint(joint_min, joint_max, idx_elbow);
 }
 
-
-/** 
- * Check if the given joint configuration matches the desired front/back, elbow, and wrist configurations.
- * @param[in] joints Array of joint angles [0..5].
- * @param[in] joint_min Array of joint minimum limits [0..5].
- * @param[in] joint_max Array of joint maximum limits [0..5].
- * @param[in] frontback_cfg Desired front/back configuration (0=FRONT, 1=REAR).
- * @param[in] elbow_cfg Desired elbow configuration (0=UP, 1=DOWN).
- * @param[in] wrist_cfg Desired wrist configuration (0=N_FLIP, 1=FLIP).
- * @param[in] tcp_pose (Optional) TCP pose (12 elements) for front/back classification.
- * @param[in] robot_lower Lowercase robot name.
- * @param[in] eps Epsilon tolerance for comparisons.
- * @return True if the joint configuration matches the desired configuration, false otherwise.
- */
-static bool matches_configuration(
-    const IkReal* joints,      // [0..5] //NOLINT
-    const IkReal* joint_min,   // [0..5] //NOLINT
+static bool matchesConfiguration(
+    const IkReal* joints,      // [0..5]
+    const IkReal* joint_min,   // [0..5]
     const IkReal* joint_max,   // [0..5]
     int frontback_cfg,         // 0 = FRONT, 1 = REAR
     int elbow_cfg,             // 0 = UP,    1 = DOWN
@@ -1060,20 +834,19 @@ static bool matches_configuration(
     IkReal eps
 ) {
     // Default epsilon if zero/negative provided
-    if (eps <= 0) { eps = 1e-5;
-    }
+    if (eps <= 0) eps = 1e-5;
 
-    constexpr int IDX_FRONTBACK = 0;  // joint1 (J1) - index 0 //NOLINT
-    constexpr int IDX_ELBOW     = 2;  // joint3 (J3) - index 2 //NOLINT
-    constexpr int IDX_WRIST     = 4;  // joint5 (J5) - index 4 //NOLINT
+    constexpr int IDX_FRONTBACK = 0;  // joint1 (J1) - index 0
+    constexpr int IDX_ELBOW     = 2;  // joint3 (J3) - index 2
+    constexpr int IDX_WRIST     = 4;  // joint5 (J5) - index 4
 
-    IkReal j1 = normalize_angle(joints[IDX_FRONTBACK]);
-    IkReal j3 = normalize_angle(joints[IDX_ELBOW]);
+    IkReal j1 = normalizeAngle(joints[IDX_FRONTBACK]);
+    IkReal j3 = normalizeAngle(joints[IDX_ELBOW]);
     IkReal j5 = joints[IDX_WRIST];
 
     // Translation from tcp_pose
-    IkReal tx = (tcp_pose != nullptr) ? tcp_pose[3]  : 0.0;
-    IkReal ty = (tcp_pose != nullptr) ? tcp_pose[7]  : 0.0;
+    IkReal tx = tcp_pose ? tcp_pose[3]  : 0.0;
+    IkReal ty = tcp_pose ? tcp_pose[7]  : 0.0;
     // IkReal tz = tcp_pose ? tcp_pose[11] : 0.0; // not needed for yaw
 
     // 1) FRONT/BACK using j1 against target direction
@@ -1081,7 +854,7 @@ static bool matches_configuration(
     // FRONT: j1와 TCP가 같은 방향 (각도 차이 < 90도)
     // REAR: j1와 TCP가 반대 방향 (각도 차이 >= 90도)
     IkReal yaw_target = std::atan2(tx, -ty);     // Note: (x,-y) -> yaw; j1=0 => -Y (KJ125)
-    IkReal diff = normalize_angle(yaw_target - j1);
+    IkReal diff = normalizeAngle(yaw_target - j1);
 
     // DEBUG LOG
     static bool debug_enabled = (std::getenv("IK_DEBUG_CONFIG") != nullptr);
@@ -1102,13 +875,13 @@ static bool matches_configuration(
             : (std::abs(diff) >= (M_PI / 2.0));
 
     if (debug_enabled) {
-        std::cout << "  FRONT/BACK: |diff| <= pi/2 = " << (std::abs(diff) <= (M_PI / 2.0 + eps)) //NOLINT
+        std::cout << "  FRONT/BACK: |diff| <= pi/2 = " << (std::abs(diff) <= (M_PI / 2.0 + eps))
                   << ", requested=" << frontback_cfg << ", match=" << frontback_match << "\n";
     }
 
     // 2) UP/DOWN using J3 reference (robot-specific)
     // J3 < ref => UP (2), J3 >= ref => DOWN (3)
-    IkReal j3_ref = get_j3_reference(robot_lower, joint_min, joint_max, IDX_ELBOW);
+    IkReal j3_ref = getJ3Reference(robot_lower, joint_min, joint_max, IDX_ELBOW);
     IkReal j3_delta = j3 - j3_ref;
 
     bool elbow_match =
@@ -1123,7 +896,7 @@ static bool matches_configuration(
     }
 
     // 3) FLIP / N_FLIP (joint5, sign-based: J5 >= 0 => N_FLIP)
-    IkReal j5n = normalize_angle(j5);
+    IkReal j5n = normalizeAngle(j5);
     bool is_nonflip = (j5n >= -eps);  // Use small tolerance for boundary case
 
     bool wrist_match =
@@ -1140,19 +913,6 @@ static bool matches_configuration(
 
     return frontback_match && elbow_match && wrist_match;
 }
-
-/**
- * Solve IK with specified configuration options.
- * @param[in] robot_name Name of the robot.
- * @param[in] tcp_pose Pointer to 12-element TCP pose array (4x4 matrix format).
- * @param[in] shoulder_config Desired shoulder configuration (0=FRONT, 1=BACK).
- * @param[in] elbow_config Desired elbow configuration (2=UP, 3=DOWN).
- * @param[in] wrist_config Desired wrist configuration (4=N_FLIP, 5=FLIP).
- * @param[out] out_joints Output array for joint angles.
- * @param[out] out_is_solvable Output flag indicating if a solution was found.
- * @param[in] current_joints (Optional) Current joint angles for continuity (nullptr = old behavior).
- * @return True if a solution was found, false otherwise.
- */
 
 bool solveIKWithConfig(
     const std::string& robot_name,
@@ -1172,8 +932,8 @@ bool solveIKWithConfig(
 
     // Get robot plugin to access joint limits
     RobotIkPlugin* plugin = find_robot(robot_lower);
-    if (plugin == nullptr) {
-        std::cerr << "Robot IK plugin not loaded: " << robot_lower << '\n';
+    if (!plugin) {
+        std::cerr << "Robot IK plugin not loaded: " << robot_lower << std::endl;
         return false;
     }
     int dof = plugin->num_joints;
@@ -1207,7 +967,7 @@ bool solveIKWithConfig(
         config_matches.clear();
 
         for (const auto& sol : all_solutions) {
-            if (matches_configuration(
+            if (matchesConfiguration(
                 sol.joints.data(),
                 joint_min.data(),
                 joint_max.data(),
@@ -1222,8 +982,7 @@ bool solveIKWithConfig(
             }
         }
 
-        if (!config_matches.empty()) { break;  // Found matches at this threshold
-        }
+        if (!config_matches.empty()) break;  // Found matches at this threshold
     }
 
     if (config_matches.empty()) {
@@ -1244,7 +1003,7 @@ bool solveIKWithConfig(
         const IkSolutionData* best_sol = nullptr;
 
         for (const auto* sol : config_matches) {
-            IkReal distance = compute_joint_distance(
+            IkReal distance = computeJointDistance(
                 sol->joints.data(),
                 current_joints,
                 dof,
@@ -1258,14 +1017,12 @@ bool solveIKWithConfig(
         }
 
         if (best_sol != nullptr) {
-            std::vector<IkReal> wrapped_joints(best_sol->joints);
-            wrap_joints_to_nearest(wrapped_joints.data(), current_joints, dof, plugin->joint_limits);
-            std::copy(wrapped_joints.begin(), wrapped_joints.end(), out_joints);
+            std::copy(best_sol->joints.begin(), best_sol->joints.end(), out_joints);
             *out_is_solvable = true;
             return true;
         }
     } else {
-        // FALLBACK : not nearest, just take the first match
+        // OLD BEHAVIOR: Return first match (backward compatible)
         const auto* first_match = config_matches[0];
         std::copy(first_match->joints.begin(), first_match->joints.end(), out_joints);
         *out_is_solvable = true;
@@ -1275,19 +1032,9 @@ bool solveIKWithConfig(
     return false;
 }
 
-
-/**
- * Solve IK with nearest joint.
- * @param[in] robot_name Name of the robot.
- * @param[in] tcp_pose Pointer to 12-element TCP pose array (4x4 matrix format).
- * @param[in] current_joints Pointer to current joint angles array.
- * @param[out] out_joints Output array for joint angles.
- * @param[out] out_is_solvable Output flag indicating if a solution was found.
- * @return True if a solution was found, false otherwise.
- */
 bool solveIKWithJoint(
     const std::string& robot_name,
-    const IkReal* tcp_pose, //NOLINT
+    const IkReal* tcp_pose,
     const IkReal* current_joints,
     IkReal* out_joints,
     bool* out_is_solvable
@@ -1300,8 +1047,8 @@ bool solveIKWithJoint(
 
     // PATCH: 플러그인 직접 가져와서 DOF와 limits를 같이 사용
     RobotIkPlugin* plugin = find_robot(robot_lower);
-    if (plugin == nullptr) {
-        std::cerr << "Robot IK plugin not loaded: " << robot_lower << '\n';
+    if (!plugin) {
+        std::cerr << "Robot IK plugin not loaded: " << robot_lower << std::endl;
         return false;
     }
     int dof = plugin->num_joints;
@@ -1330,7 +1077,7 @@ bool solveIKWithJoint(
     int best_idx = -1;
 
     for (size_t i = 0; i < all_solutions.size(); ++i) {
-        IkReal distance = compute_joint_distance(
+        IkReal distance = computeJointDistance(
             all_solutions[i].joints.data(),
             current_joints,
             dof,
@@ -1338,7 +1085,7 @@ bool solveIKWithJoint(
         );
         if (distance < min_distance) {
             min_distance = distance;
-            best_idx = (int)i;
+            best_idx = static_cast<int>(i);
         }
     }
 
@@ -1353,6 +1100,10 @@ bool solveIKWithJoint(
 
     // Should not reach here
     return false;
+}
+
+bool get_joint_limits(const std::string& robot_name, std::vector<JointLimit>& out_limits) {
+    return load_joint_limits_from_data(robot_name, out_limits);
 }
 
 } // namespace ikcore
