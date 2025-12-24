@@ -345,6 +345,39 @@ static IkReal normalize_angle(IkReal angle) {
 }
 
 /**
+ * Apply wrapping to joint values to be closest to target joints.
+ * For revolute joints with range >= 2π, adjusts joint values by ±2π to minimize distance.
+ * @param[in,out] joints Joint array to wrap (modified in-place).
+ * @param[in] target_joints Target joint configuration for distance calculation.
+ * @param[in] dof Number of joints (degrees of freedom).
+ * @param[in] limits Joint limits for each joint.
+ * @return void
+ */
+static void wrap_joints_to_nearest(
+    IkReal* joints,
+    const IkReal* target_joints,
+    int dof,
+    const std::vector<JointLimit>& limits
+) {
+    for (int i = 0; i < dof; ++i) {
+        if (!limits.empty() && i < static_cast<int>(limits.size())) {
+            IkReal range = limits[i].upper - limits[i].lower;
+            if (range >= 2 * M_PI) {
+                // This is a revolute joint that can wrap multiple times
+                // Find the wrapped variant closest to target_joints[i]
+                IkReal diff = joints[i] - target_joints[i];
+                IkReal abs_diff = std::abs(diff);
+                IkReal wrapped_diff = abs_diff - 2 * M_PI;
+                
+                if (std::abs(wrapped_diff) < abs_diff) {
+                    joints[i] = (diff > 0) ? joints[i] - 2 * M_PI : joints[i] + 2 * M_PI;
+                }
+            }
+        }
+    }
+}
+
+/**
  * Compute Euclidean distance between two joints arrays.
  * @param[in] joints1 First joint array.
  * @param[in] joints2 Second joint array.
@@ -362,16 +395,25 @@ static IkReal compute_joint_distance(
     for (int i = 0; i < dof; ++i) {
         IkReal diff = joints1[i] - joints2[i];
 
-        // Apply angle wrapping for revolute joints
-        // Heuristic: If joint limit range > 6.0 rad (≈2π), treat as revolute with wrapping
-        bool is_revolute = true;
+        // For joints with range >= 2π, select the shortest wrapping distance
+        // Example: 179° vs -180° → use 1° instead of 359°
         if (!limits.empty() && i < static_cast<int>(limits.size())) {
             IkReal range = limits[i].upper - limits[i].lower;
-            // If range >= 6.0, likely revolute joint that can wrap around
-            is_revolute = (range >= 6.0);
-        }
-
-        if (is_revolute) {
+            if (range >= 2 * M_PI) {
+                // This is a revolute joint that can wrap multiple times
+                // Find the shortest distance considering ±2π wrapping
+                IkReal abs_diff = std::abs(diff);
+                IkReal wrapped_diff = abs_diff - 2 * M_PI;
+                
+                if (std::abs(wrapped_diff) < abs_diff) {
+                    diff = (diff > 0) ? wrapped_diff : -wrapped_diff;
+                }
+            } else {
+                // Standard revolute joint with range < 2π
+                diff = normalize_angle(diff);
+            }
+        } else {
+            // No limit information, use standard normalization
             diff = normalize_angle(diff);
         }
 
@@ -856,7 +898,6 @@ bool solveIK(
         std::cerr << "[Joint Limit Filter] " << robot_name
                   << ": filtered " << filtered_count << "/" << nsol << " solutions\n";
     }
-
     return !out_solutions.empty();
 }
 
@@ -1229,7 +1270,9 @@ bool solveIKWithConfig(
         }
 
         if (best_sol != nullptr) {
-            std::copy(best_sol->joints.begin(), best_sol->joints.end(), out_joints);
+            std::vector<IkReal> wrapped_joints(best_sol->joints);
+            wrap_joints_to_nearest(wrapped_joints.data(), current_joints, dof, plugin->joint_limits);
+            std::copy(wrapped_joints.begin(), wrapped_joints.end(), out_joints);
             *out_is_solvable = true;
             return true;
         }
@@ -1313,8 +1356,9 @@ bool solveIKWithJoint(
 
     if (best_idx >= 0) {
         // Found nearest solution (이미 solveIK에서 limit 통과한 해만 있음)
-        const auto& best_sol = all_solutions[best_idx];
-        std::copy(best_sol.joints.begin(), best_sol.joints.end(), out_joints);
+        auto best_sol = all_solutions[best_idx].joints;
+        wrap_joints_to_nearest(best_sol.data(), current_joints, dof, plugin->joint_limits);
+        std::copy(best_sol.begin(), best_sol.end(), out_joints);
         *out_is_solvable = true;
         return true;
     }
