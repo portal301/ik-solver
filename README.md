@@ -1020,7 +1020,7 @@ dotnet run -c Release -p:Platform=x64
 ### Python 테스트
 
 ```powershell
-python tests\test_python.py
+python tests\unified_test.py
 ```
 
 > **참고**: Python 3.12+ 필요. uv 또는 conda 환경 모두 지원됩니다.
@@ -1093,7 +1093,6 @@ ik-solver/
 └── tests/
     ├── unified_test.py                    # Python 통합 테스트
     ├── Program.cs                         # C# 테스트 소스 코드
-    ├── build_and_run.bat                  # 빌드 및 실행
     └── run_unified_tests.bat              # 테스트 실행
 ```
 
