@@ -363,15 +363,9 @@ static void wrap_joints_to_nearest(
         if (!limits.empty() && i < static_cast<int>(limits.size())) {
             IkReal range = limits[i].upper - limits[i].lower;
             if (range >= 2 * M_PI) {
-                // This is a revolute joint that can wrap multiple times
-                // Find the wrapped variant closest to target_joints[i]
                 IkReal diff = joints[i] - target_joints[i];
-                IkReal abs_diff = std::abs(diff);
-                IkReal wrapped_diff = abs_diff - 2 * M_PI;
-                
-                if (std::abs(wrapped_diff) < abs_diff) {
-                    joints[i] = (diff > 0) ? joints[i] - 2 * M_PI : joints[i] + 2 * M_PI;
-                }
+                IkReal k = std::round(diff / (2 * M_PI));
+                joints[i] -= k * 2 * M_PI;
             }
         }
     }
@@ -395,13 +389,9 @@ static IkReal compute_joint_distance(
     for (int i = 0; i < dof; ++i) {
         IkReal diff = joints1[i] - joints2[i];
 
-        // For joints with range >= 2π, select the shortest wrapping distance
-        // Example: 179° vs -180° → use 1° instead of 359°
         if (!limits.empty() && i < static_cast<int>(limits.size())) {
             IkReal range = limits[i].upper - limits[i].lower;
             if (range >= 2 * M_PI) {
-                // This is a revolute joint that can wrap multiple times
-                // Find the shortest distance considering ±2π wrapping
                 IkReal abs_diff = std::abs(diff);
                 IkReal wrapped_diff = abs_diff - 2 * M_PI;
                 
@@ -409,11 +399,9 @@ static IkReal compute_joint_distance(
                     diff = (diff > 0) ? wrapped_diff : -wrapped_diff;
                 }
             } else {
-                // Standard revolute joint with range < 2π
                 diff = normalize_angle(diff);
             }
         } else {
-            // No limit information, use standard normalization
             diff = normalize_angle(diff);
         }
 
@@ -1350,7 +1338,7 @@ bool solveIKWithJoint(
         );
         if (distance < min_distance) {
             min_distance = distance;
-            best_idx = static_cast<int>(i);
+            best_idx = (int)i;
         }
     }
 
