@@ -99,6 +99,8 @@ check_module.py
 *.txt
 tests/debug_config.py
 tests/debug_specific.py
+src\ikfast_core_backup.cpp
+
 pyproject.toml
 uv.lock
 /node_modules
