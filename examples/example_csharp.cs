@@ -68,8 +68,8 @@ class IKFastExample
     {
         NULL = -1,
         RIGHT = 0, LEFT = 1,
-        UP = 0, DOWN = 1,
-        N_FLIP = 0, FLIP = 1
+        UP = 2, DOWN = 3,
+        N_FLIP = 4, FLIP = 5
     }
 
     // ========================================================================
