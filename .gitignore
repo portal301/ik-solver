@@ -7,7 +7,6 @@ out/
 # C# build outputs
 tests/bin/
 tests/obj/
-<<<<<<< HEAD
 
 # Python build outputs
 dist/
@@ -24,41 +23,18 @@ __pycache__/
 *.pdb
 *.ilk
 
-# Exception: Keep distributed binaries
-!ikfast_solver.cp310-win_amd64.pyd
-!ikfast_solver.cp311-win_amd64.pyd
-!ikfast_solver.cp312-win_amd64.pyd
-!IKFastUnity_x64.dll
-!src/robots/*.dll
-!lib/*.dll
-=======
+# Compiled binaries
+*.dll
+*.pyd
 
-# Python build outputs
-dist/
-*.egg-info/
-__pycache__/
-*.pyc
-*.pyo
-
-# Compiled intermediate files
-*.o
-*.obj
-*.exp
-*.lib
-*.pdb
-*.ilk
 
 # Exception: Keep distributed binaries
-!ikfast_solver.cp310-win_amd64.pyd
-!ikfast_solver.cp311-win_amd64.pyd
-!ikfast_solver.cp312-win_amd64.pyd
-!IKFastUnity_x64.dll
-!src/robots/*.dll
-!lib/*.dll
-
-# Exclude other .pyd files in bin/
-bin/*.pyd
->>>>>>> 82266b4 (ik 함수 정립 및 dll 배포)
+# !ikfast_solver.cp310-win_amd64.pyd
+# !ikfast_solver.cp311-win_amd64.pyd
+# !ikfast_solver.cp312-win_amd64.pyd
+# !IKFastUnity_x64.dll
+# !src/robots/*.dll
+# !lib/*.dll
 cmake_install.cmake
 install_manifest.txt
 CTestTestfile.cmake
